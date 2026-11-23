@@ -54,6 +54,14 @@ export function Header({ runs, currentId, onSelect, onCreated }: Props) {
               Equipo de agentes
             </h1>
             <p className="mt-1 text-sm text-slate-400">Orquestador, Develop y Testing trabajando en equipo</p>
+            <form method="post" action="/api/auth/logout" className="mt-2">
+              <button
+                type="submit"
+                className="rounded text-xs text-slate-400 underline-offset-2 transition hover:text-slate-200 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+              >
+                Cerrar sesión
+              </button>
+            </form>
           </div>
           <div className="flex flex-col gap-1">
             <label htmlFor={selectId} className="text-xs font-medium uppercase tracking-wide text-slate-400">
