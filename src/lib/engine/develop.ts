@@ -1,8 +1,9 @@
 // Develop: genera (o corrige) los archivos TSX de una tarea y la pasa a Testing.
-import { eq } from "drizzle-orm";
+import { and, eq, like } from "drizzle-orm";
 import { z } from "zod";
 import { db, events, files, runs, tasks } from "@/db";
 import { callModel, parseJson } from "@/lib/ai/generate";
+import { injectDemoDefect } from "./demo-defect";
 import type { Lease } from "./lease";
 import { dependencyFiles, eventValues, filesOfVersion, logEvent, secs, type TaskRow } from "./shared";
 
@@ -115,7 +116,28 @@ export async function developTask(run: typeof runs.$inferSelect, task: TaskRow, 
   // No sobrescribir archivos de tareas anteriores: si el modelo los repite, se descartan.
   const depPaths = new Set(deps.map((d) => d.path));
   const own = result.data.files.filter((f) => !depPaths.has(f.path));
-  const delivered = own.length > 0 ? own : result.data.files;
+  let delivered = own.length > 0 ? own : result.data.files;
+
+  // Modo demo: en el primer intento de UNA sola tarea se introduce a propósito un defecto real
+  // (post-procesado determinista, el modelo no interviene) para que Testing lo detecte. Se elige la
+  // primera tarea cuyo código tenga un campo de formulario; si ninguna lo tiene, en la última tarea se
+  // usa una imagen sin alt. El evento queda registrado: no se disfraza de error del modelo.
+  let demoNote: string | null = null;
+  if (run.demoForceFailure && attempt === 1) {
+    const already = await db
+      .select({ id: events.id })
+      .from(events)
+      .where(and(eq(events.runId, run.id), like(events.message, "Modo demo:%")))
+      .limit(1);
+    if (already.length === 0) {
+      const isLast = !runTasks.some((t) => t.id > task.id);
+      const defect = injectDemoDefect(delivered, isLast);
+      if (defect) {
+        delivered = defect.files;
+        demoNote = `Modo demo: se ha introducido a propósito un defecto (${defect.description}) en la entrega de «${task.title}» para mostrar el bucle de corrección. No es un error del modelo.`;
+      }
+    }
+  }
 
   await lease.assertHeld();
   // Escritura atómica (neon-http ejecuta el batch como transacción): archivos con versión = número
@@ -128,7 +150,8 @@ export async function developTask(run: typeof runs.$inferSelect, task: TaskRow, 
       .set({ attempts: attempt, phase: "testing", status: "running", updatedAt: new Date() })
       .where(eq(tasks.id, task.id)),
     db.update(runs).set({ stepErrors: 0 }).where(eq(runs.id, run.id)),
-    db.insert(events).values(
+    db.insert(events).values([
+      ...(demoNote ? [eventValues(run.id, "develop", demoNote, task.id)] : []),
       eventValues(
         run.id,
         "develop",
@@ -137,6 +160,6 @@ export async function developTask(run: typeof runs.$inferSelect, task: TaskRow, 
         }, ${secs(result.ms)}). Pasa a Testing.`,
         task.id,
       ),
-    ),
+    ]),
   ]);
 }

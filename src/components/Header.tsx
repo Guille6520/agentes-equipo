@@ -15,6 +15,8 @@ interface Props {
 export function Header({ runs, currentId, onSelect, onCreated }: Props) {
   const selectId = useId();
   const textId = useId();
+  const demoId = useId();
+  const [demo, setDemo] = useState(false);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +33,7 @@ export function Header({ runs, currentId, onSelect, onCreated }: Props) {
       const res = await fetch("/api/runs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ request }),
+        body: JSON.stringify({ request, forceInitialFailure: demo }),
       });
       const data = (await res.json().catch(() => null)) as
         | (Partial<CreateRunResponse> & { error?: string })
@@ -99,6 +101,14 @@ export function Header({ runs, currentId, onSelect, onCreated }: Props) {
                   {RUN_STATUS_LABEL[current.status].label}
                 </span>
               )}
+              {current?.demo && (
+                <span
+                  className="shrink-0 rounded-full bg-amber-400/10 px-2.5 py-1 text-xs font-medium text-amber-200 ring-1 ring-inset ring-amber-400/30"
+                  title="Run con fallo inicial forzado a propósito"
+                >
+                  Demo
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -125,6 +135,24 @@ export function Header({ runs, currentId, onSelect, onCreated }: Props) {
             >
               {sending ? "Enviando…" : "Enviar"}
             </button>
+          </div>
+          <div className="mt-1 flex items-start gap-2">
+            <input
+              id={demoId}
+              type="checkbox"
+              checked={demo}
+              onChange={(e) => setDemo(e.target.checked)}
+              aria-describedby={`${demoId}-desc`}
+              className="mt-0.5 size-4 shrink-0 rounded border-white/20 bg-slate-800 accent-violet-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+            />
+            <div className="flex flex-col">
+              <label htmlFor={demoId} className="text-sm text-slate-200">
+                Demo: forzar un fallo inicial para ver el bucle de corrección
+              </label>
+              <p id={`${demoId}-desc`} className="text-xs text-slate-400">
+                Develop entregará a propósito una versión con un defecto para que Testing lo detecte y se vea cómo se corrige.
+              </p>
+            </div>
           </div>
           {error && (
             <p id={`${textId}-err`} role="alert" className="text-sm text-rose-300">

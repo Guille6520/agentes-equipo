@@ -8,6 +8,7 @@ export function toRunDTO(r: typeof runs.$inferSelect): RunDTO {
     status: r.status,
     createdAt: r.createdAt.toISOString(),
     finishedAt: r.finishedAt ? r.finishedAt.toISOString() : null,
+    demo: r.demoForceFailure,
   };
 }
 

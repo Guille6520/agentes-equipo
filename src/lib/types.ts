@@ -13,6 +13,8 @@ export interface RunDTO {
   status: RunStatus;
   createdAt: string;
   finishedAt: string | null;
+  /** Run creado con el modo demo (fallo inicial forzado). */
+  demo?: boolean;
 }
 
 export interface TaskDTO {

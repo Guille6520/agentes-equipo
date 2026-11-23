@@ -24,6 +24,8 @@ export const runs = pgTable("runs", {
   lockToken: text("lock_token"),
   /** Pasos seguidos que fallaron por los modelos (ambos proveedores); a los 3 el run falla. */
   stepErrors: integer("step_errors").notNull().default(0),
+  /** Modo demo: Develop entrega a propósito una primera versión con un defecto para mostrar el bucle. */
+  demoForceFailure: boolean("demo_force_failure").notNull().default(false),
 });
 
 /** Subtasks created by the Orchestrator and assigned to Develop. */

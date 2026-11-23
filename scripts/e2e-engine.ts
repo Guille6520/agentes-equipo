@@ -1,5 +1,6 @@
 // Prueba extremo a extremo del motor con modelos reales.
-// Uso: npx tsx scripts/e2e-engine.ts ["petición opcional"]
+// Uso: npx tsx scripts/e2e-engine.ts ["petición opcional"] [--demo-failure]
+// --demo-failure activa el modo demo (Develop introduce a propósito un defecto en el primer intento).
 // Lee .env.local (DATABASE_URL, NVIDIA_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY) y NO imprime ninguna
 // de esas variables. Crea un run nuevo (no toca el run de demo), llama a advanceRun en bucle y sale
 // con código distinto de 0 si el run no termina en "passed".
@@ -7,7 +8,8 @@ import { config } from "dotenv";
 
 config({ path: ".env.local", quiet: true });
 
-const REQUEST = process.argv[2] ?? "Añade una página de contacto a esta web";
+const DEMO = process.argv.includes("--demo-failure");
+const REQUEST = process.argv.slice(2).find((a) => !a.startsWith("--")) ?? "Añade una página de contacto a esta web";
 const MAX_STEPS = 40;
 const MAX_TOTAL_MS = 20 * 60_000;
 
@@ -21,7 +23,10 @@ async function main() {
   const { db, runs, tasks, files, events } = await import("../src/db");
   const { advanceRun } = await import("../src/lib/engine");
 
-  const [run] = await db.insert(runs).values({ request: REQUEST, status: "running", engineManaged: true }).returning();
+  const [run] = await db
+    .insert(runs)
+    .values({ request: REQUEST, status: "running", engineManaged: true, demoForceFailure: DEMO })
+    .returning();
   await db.insert(events).values({ runId: run.id, agent: "orchestrator", message: "Petición recibida" });
   console.log(`Run #${run.id}: "${REQUEST}"\n`);
 

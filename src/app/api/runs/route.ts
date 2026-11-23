@@ -33,6 +33,7 @@ export async function GET() {
 
 const createSchema = z.object({
   request: z.string().trim().min(1).max(2000),
+  forceInitialFailure: z.boolean().optional(),
 });
 
 export async function POST(req: Request) {
@@ -48,13 +49,20 @@ export async function POST(req: Request) {
   try {
     const [run] = await db
       .insert(runs)
-      .values({ request: parsed.data.request, status: "running", engineManaged: true })
+      .values({
+        request: parsed.data.request,
+        status: "running",
+        engineManaged: true,
+        demoForceFailure: parsed.data.forceInitialFailure === true,
+      })
       .returning();
 
     await db.insert(events).values({
       runId: run.id,
       agent: "orchestrator",
-      message: "Petición recibida",
+      message: run.demoForceFailure
+        ? "Petición recibida (modo demo: fallo inicial forzado)"
+        : "Petición recibida",
     });
 
     // Motor: se responde ya y los agentes trabajan después de la respuesta. Cada paso persiste su
