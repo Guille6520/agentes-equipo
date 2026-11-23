@@ -19,9 +19,17 @@ const planSchema = z.object({
         acceptance: z.unknown().optional(),
       }),
     )
-    .min(1)
     .max(4),
+  /** Motivo si la petición no se puede resolver con componentes React (vídeo, imagen, backend…). */
+  outOfScope: z.string().trim().max(400).optional(),
 });
+
+/** Resultado de planificar: el run sigue, o se cierra porque la petición está fuera de alcance. */
+export type PlanOutcome = "running" | "out-of-scope";
+
+const SCOPE_HINT =
+  "Este equipo construye componentes de interfaz web en React: páginas, secciones, formularios y elementos interactivos. " +
+  "Prueba, por ejemplo: «Añade una página de contacto», «Crea una tabla de precios con tres planes» o «Crea una sección de preguntas frecuentes».";
 
 const INSTRUCTIONS = `Eres el Orquestador de un equipo de agentes que programa componentes React con TypeScript (TSX).
 Divide la petición del usuario en entre 1 y 4 tareas, en orden de dependencia.
@@ -41,9 +49,14 @@ Reglas:
   {"type":"link","text":"Inicio"}                 enlace <a> que contiene ese texto
   Criterios concretos y cortos, coherentes con la descripción; no pidas mensajes que solo aparecen tras enviar.
 Ejemplo: {"tasks":[{"title":"Formulario de contacto","description":"...","acceptance":[{"type":"heading","text":"Contacto"},{"type":"field","name":"email","required":true},{"type":"element","selector":"textarea"},{"type":"text","value":"Enviar"}]}]}
+Alcance: SÍ se puede todo lo que sea interfaz web hecha con JSX, incluidos dibujos, iconos, logotipos,
+ilustraciones y gráficos en SVG escrito dentro del componente, animaciones CSS y elementos interactivos con estado.
+NO se puede: generar vídeo, audio o imágenes raster (fotos, PNG, JPG), backend, bases de datos, llamadas a APIs
+externas, despliegues ni nada ajeno a una interfaz web. Solo si la petición es claramente de lo que NO se puede,
+no inventes tareas y responde {"tasks":[],"outOfScope":"motivo breve en español"}. En caso de duda, planifícala.
 Responde SOLO con JSON, sin texto adicional: {"tasks":[{"title":"...","description":"...","acceptance":[...]}]}`;
 
-export async function planRun(run: typeof runs.$inferSelect, lease: Lease) {
+export async function planRun(run: typeof runs.$inferSelect, lease: Lease): Promise<PlanOutcome> {
   await logEvent(run.id, "orchestrator", "Analizando la petición y dividiéndola en tareas…");
 
   const result = await callModel({
@@ -55,6 +68,20 @@ export async function planRun(run: typeof runs.$inferSelect, lease: Lease) {
     onFallback: ({ from, to, reason }) =>
       logEvent(run.id, "orchestrator", `${from.label} falla (${reason}); uso ${to.label} como respaldo.`),
   });
+
+  // Petición fuera de alcance: se cierra el run con una explicación, sin reintentos (no es un fallo
+  // del modelo). Un plan vacío sin motivo se trata igual, con la explicación genérica.
+  if (result.data.tasks.length === 0) {
+    const reason = result.data.outOfScope?.replace(/\s+/g, " ") || "la petición no se puede resolver con componentes de interfaz";
+    await lease.assertHeld();
+    await db.batch([
+      db.update(runs).set({ status: "failed", finishedAt: new Date(), stepErrors: 0 }).where(eq(runs.id, run.id)),
+      db.insert(events).values(
+        eventValues(run.id, "orchestrator", `Petición fuera de alcance (${result.model.label}): ${reason}. ${SCOPE_HINT}`),
+      ),
+    ]);
+    return "out-of-scope";
+  }
 
   let discarded = 0;
   const plan = result.data.tasks.map(({ acceptance: raw, ...t }) => {
@@ -98,4 +125,5 @@ export async function planRun(run: typeof runs.$inferSelect, lease: Lease) {
       ),
     ),
   );
+  return "running";
 }

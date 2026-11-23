@@ -63,8 +63,8 @@ async function step(run: typeof runs.$inferSelect, lease: Parameters<typeof plan
   const runTasks = await tasksOf(run.id);
 
   if (runTasks.length === 0) {
-    await planRun(run, lease);
-    return "running" as const;
+    const outcome = await planRun(run, lease);
+    return outcome === "out-of-scope" ? ("failed" as const) : ("running" as const);
   }
 
   const next = runTasks.find((t) => t.status === "pending" || t.status === "running");

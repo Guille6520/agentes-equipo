@@ -123,7 +123,7 @@ export function Header({ runs, currentId, onSelect, onCreated }: Props) {
               value={text}
               onChange={(e) => setText(e.target.value)}
               maxLength={2000}
-              placeholder="Ej.: Añade una página de contacto"
+              placeholder="Ej.: Añade una página de contacto · Crea una tabla de precios · Crea una FAQ"
               aria-describedby={error ? `${textId}-err` : undefined}
               aria-invalid={error ? true : undefined}
               className="min-w-0 flex-1 rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
