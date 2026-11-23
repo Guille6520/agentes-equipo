@@ -16,7 +16,7 @@ async function main() {
 
   const [run] = await db
     .insert(runs)
-    .values({ request: "Añade una página de contacto", status: "running", createdAt: at(0) })
+    .values({ request: "[Ejemplo: ejecución simulada en curso] Añade una página de contacto", status: "running", createdAt: at(0) })
     .returning();
 
   const inserted = await db
