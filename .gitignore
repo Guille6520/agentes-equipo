@@ -46,3 +46,6 @@ next-env.d.ts
 # private interview notes (not published)
 defensa/
 
+
+# local Claude Code settings (may contain personal permissions)
+.claude/settings.local.json

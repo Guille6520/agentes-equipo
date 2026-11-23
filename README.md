@@ -1,36 +1,249 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Equipo de agentes de IA: Orquestador, Develop y Testing
 
-## Getting Started
+[![CI](https://github.com/Guille6520/agentes-equipo/actions/workflows/ci.yml/badge.svg)](https://github.com/Guille6520/agentes-equipo/actions/workflows/ci.yml)
 
-First, run the development server:
+Tres agentes de IA que colaboran sobre una petición escrita en lenguaje natural. El **Orquestador** la divide en tareas, **Develop** escribe el código de cada tarea y **Testing** lo comprueba de forma automática y devuelve lo que falla, hasta que todo pasa. En pantalla se ve en directo qué hace cada agente y en qué estado está cada tarea.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **App desplegada:** https://agentes-equipo.vercel.app (requiere login; usuario y contraseña de prueba se facilitan por separado)
+- **Repositorio:** https://github.com/Guille6520/agentes-equipo
+- **Vídeo de demostración (2 min):** _pendiente de añadir_
+
+Hecho con Next.js, Neon (Postgres), Vercel AI SDK y modelos gratuitos. Programado con Claude Code (ver [Cómo usé Claude Code](#cómo-usé-claude-code)).
+
+## Índice
+
+1. [Qué hace exactamente](#qué-hace-exactamente)
+2. [Qué peticiones admite](#qué-peticiones-admite)
+3. [Cómo funciona](#cómo-funciona)
+4. [El agente Testing](#el-agente-testing)
+5. [Modelos de IA](#modelos-de-ia)
+6. [Funciones extra: modo demo y evaluación de modelos](#funciones-extra-modo-demo-y-evaluación-de-modelos)
+7. [Stack y decisiones](#stack-y-decisiones)
+8. [Ejecutar en local](#ejecutar-en-local)
+9. [Despliegue](#despliegue)
+10. [Seguridad](#seguridad)
+11. [Limitaciones conocidas](#limitaciones-conocidas)
+12. [Hoja de ruta](#hoja-de-ruta)
+13. [Cómo usé Claude Code](#cómo-usé-claude-code)
+
+## Qué hace exactamente
+
+Escribes una petición como _«Añade una página de contacto a esta web»_ y ocurre esto:
+
+1. **Orquestador** la divide en 1-4 tareas ordenadas por dependencia (por ejemplo: _formulario de contacto_ y _página que lo integra_) y **reparte el trabajo a los otros dos**: a Develop le asigna cada tarea y a Testing le define, por tarea, de 1 a 5 **criterios de aceptación verificables** (por ejemplo: encabezado «Contacto», campo email obligatorio, texto «Enviar»).
+2. **Develop** toma cada tarea, con sus criterios, y genera archivos React/TypeScript (`components/ContactForm.tsx`, …), que guarda versionados.
+3. **Testing** ejecuta comprobaciones automáticas sobre esos archivos y verifica los criterios del Orquestador. Si algo falla, redacta un feedback con el fallo, el archivo y la línea, y devuelve la tarea a Develop. Si todo pasa, la tarea queda aprobada.
+4. El ciclo Develop ↔ Testing se repite hasta **3 intentos por tarea**. El run termina `passed` si todas las tareas pasan, o `failed` si alguna agota los intentos.
+
+La pantalla muestra, con actualización cada ~1,5 s:
+
+- una **tarjeta por agente** con su estado (activo o esperando) y su último mensaje;
+- un **tablero** con las tareas en _Pendiente / En curso / Fallida / Aprobada_, con el número de intentos, el feedback de Testing y los criterios del Orquestador marcados como cumplidos o pendientes;
+- un **registro de actividad** cronológico, con el agente, la hora y el mensaje;
+- una **vista previa en vivo**: la página que han construido los agentes, montada dentro de una web de ejemplo («Mi web», con navegación y pie) y totalmente interactiva, en un iframe aislado;
+- el **código generado** de cada tarea, con todas sus versiones.
+
+**Qué es y qué no es.** El resultado son **componentes React generados, verificados y visibles en funcionamiento dentro de una web de ejemplo**. No modifica un repositorio ni una web real: no hay integración con Git ni despliegue automático de lo que genera. Es una demostración del patrón multiagente (reparto de trabajo, verificación y bucle de corrección), no un sustituto de un asistente de código sobre un proyecto existente.
+
+## Qué peticiones admite
+
+Funciona bien con **componentes de interfaz autocontenidos**: Develop solo puede importar `react` y los archivos que él mismo genera, y estiliza con clases de Tailwind.
+
+| Petición | Resultado medido (23/11/2026, modelo principal) |
+|---|---|
+| _Añade una página de contacto a esta web_ | 2 tareas, 1 intento cada una, 39 s |
+| _Crea una sección de preguntas frecuentes (FAQ) con acordeón accesible_ | 2 tareas; Testing detectó un fallo de render en el primer intento y Develop lo corrigió en el segundo; 55 s |
+| _Añade un formulario de suscripción a la newsletter con solo el email_ | 1 tarea, 1 intento, 15 s |
+| _Añade una página de contacto a esta web_, con el modo demo y criterios del Orquestador | 1 tarea con 5 criterios; Testing detectó el defecto forzado, Develop lo corrigió en el segundo intento y se cumplieron 5/5 criterios; 47 s |
+
+Otros ejemplos razonables: una tabla de precios con tres planes, un formulario de registro, una tarjeta de producto con imagen, precio y botón, una lista de tareas con estado local, un formulario de login.
+
+Cada resultado anterior es **una sola ejecución**: indica lo que ocurrió, no una media.
+
+**Lo que no admite** (por diseño): backend o API propios, acceso a base de datos, librerías externas, `next/link` o rutas de Next, archivos CSS, y tareas que no sean un componente renderizable (tests, despliegue, configuración).
+
+## Cómo funciona
+
+```mermaid
+flowchart LR
+  U[Usuario] -->|petición| API["POST /api/runs"]
+  API --> DB[("Neon Postgres")]
+  API -->|after| L["Bucle de avance"]
+  UI["Pantalla (polling 1,5 s)"] -->|lee| DB
+  UI -.->|"sin eventos 20 s"| ADV["POST /api/runs/id/advance"]
+  L --> S["advanceRun: una unidad de trabajo"]
+  ADV --> S
+  S --> O["Orquestador"]
+  S --> D["Develop"]
+  S --> T["Testing"]
+  O & D & T --> DB
+  D & T --> M["Laguna (principal) / Gemini (respaldo)"]
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Estado en base de datos, no en memoria
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Vercel ejecuta funciones efímeras, así que **todo el estado vive en Postgres** y cada paso es idempotente:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `runs`: la petición y su estado (`running`, `passed`, `failed`).
+- `tasks`: estado (`pending`, `running`, `failed`, `passed`), intentos, fase (`develop`/`testing`), perfil de checks y último feedback.
+- `files`: archivos generados, con versión igual al número de intento.
+- `events`: el registro que muestra la pantalla.
 
-## Learn More
+### Una unidad de trabajo por llamada
 
-To learn more about Next.js, take a look at the following resources:
+`advanceRun(runId)` hace **una sola cosa** y devuelve si queda trabajo: planificar, generar o corregir una tarea, revisarla, o cerrar el run. Las escrituras de cada paso son atómicas (`db.batch`), así que un paso que muere a medias se repite sin duplicar nada.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Bloqueo (lease) para que no corran dos avances a la vez
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Antes de avanzar, el motor toma un _lease_ en la base de datos con un `UPDATE` atómico sobre `locked_until` y `lock_token`. Dura 60 s y se renueva cada 20 s mientras el paso trabaja; si la función muere, caduca y otro avance retoma el run. Se comprueba justo antes de cada escritura, aunque no es una exclusión perfecta: queda una ventana de carrera mínima.
 
-## Deploy on Vercel
+### Dos disparadores, un mismo motor
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. Al crear el run, `POST /api/runs` lanza un bucle con `after()` (hasta 300 s; solo empieza pasos nuevos durante los primeros 200 s).
+2. Si la pantalla ve un run en curso que lleva 20 s sin eventos, llama a `POST /api/runs/[id]/advance`. Sirve para recuperar un bucle cortado o un run abierto tras recargar.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Ambos pasan por la misma función y el mismo lease.
+
+### Fallos de modelo
+
+Cada llamada tiene timeout (30 s Orquestador y Testing, 45 s Develop), un reintento con espera y, si sigue fallando, el **respaldo en el otro proveedor**. El cambio queda registrado como evento visible. Si fallan los dos proveedores 3 pasos seguidos, el run se detiene.
+
+## El agente Testing
+
+**El veredicto lo dan comprobaciones deterministas, no un LLM.** El modelo solo redacta el mensaje de corrección a partir de los fallos. Así el mismo código da siempre el mismo resultado, y un modelo no puede aprobar por error código defectuoso.
+
+| Check | Qué comprueba |
+|---|---|
+| Sintaxis y tipos | Compila en memoria con la API de `typescript` (`strict`, `jsx: react-jsx`); informa de archivo y línea |
+| Accesibilidad | Recorre el AST: label asociado a cada campo, botones con texto, `alt` en imágenes, `aria-*` válidos, sin `tabIndex` positivo |
+| Formulario | `onSubmit`, validación de cada campo, `type="email"` en emails y región `role="alert"`/`status` |
+| Seguridad | Sin `dangerouslySetInnerHTML`, `eval`, `new Function`, claves con patrón conocido ni `fetch` a dominios externos |
+| Render en sandbox | Renderiza el componente con `react-dom/server` dentro de `node:vm` (timeout 2 s) y comprueba que no lanza y produce HTML |
+| Criterios del Orquestador | Verifica sobre ese HTML los criterios de la tarea: texto visible, elementos (con mínimo), campos (y si son obligatorios), encabezados y enlaces |
+
+Los criterios usan un **vocabulario cerrado** (`text`, `element`, `field`, `heading`, `link`) validado con zod: el Orquestador no puede pedir algo que Testing no sepa comprobar, y los criterios inválidos se descartan sin tumbar el plan. Si el render no se ejecuta (por un error de sintaxis o de seguridad), los criterios quedan **omitidos**, nunca aprobados.
+
+Hay tres perfiles según la tarea: **contact-form** (exige nombre, email y mensaje, solo para formularios de contacto), **form** (cualquier otro formulario: newsletter, registro, login…) y **basic** (sin formulario). Los checks estáticos de seguridad y sintaxis se ejecutan **antes**, y el render, que es el único paso que ejecuta código, solo corre si esos dos están limpios.
+
+> **Advertencia:** `node:vm` no es una frontera de seguridad real. Aquí es defensa en profundidad; la protección principal son los checks estáticos previos. En producción real se usaría un sandbox más fuerte (contenedor o microVM). Detalles y límites en [`src/lib/testing/README.md`](src/lib/testing/README.md).
+
+### Pruebas automáticas
+
+- **19 casos de los checks de Testing** (componentes correctos y con un fallo plantado, incluidos un bucle infinito y criterios incumplidos): `npx tsx src/lib/testing/run-fixtures.ts`.
+- **37 tests** con el runner nativo de Node para las piezas puras del motor: interpretación de las respuestas de los modelos, clasificación de errores, perfiles de checks, inyección del defecto del modo demo y límites de uso: `npm test`.
+- **Integración continua** en GitHub Actions en cada push: tipos, lint, tests y build, sin secretos ni llamadas a modelos.
+
+## Modelos de IA
+
+Los agentes usan **planes gratuitos**, como pedía el enunciado: `poolside/laguna-xs-2.1` (NVIDIA) como modelo principal de los tres agentes y `gemini-3.1-flash-lite` (Google) como respaldo, con el Vercel AI SDK.
+
+La elección salió de un benchmark y se corrigió con datos reales en producción:
+
+1. Un benchmark de 8 modelos con la misma petición. Solo dos completaron las tres pruebas.
+2. El reparto inicial era mixto (Gemini para Orquestador y Testing). Una vez desplegado, Gemini devolvió 503 de forma repetida y Laguna no falló nunca, así que se invirtieron los papeles y se acortaron los timeouts. Antes del cambio, un run con fallo forzado tardó 158 s, y un paso de ese run esperó 110 s por los 503; después, un run sin fallo forzado tardó 39 s con 0 respaldos. No son ejecuciones equivalentes (una incluía un intento extra de corrección), así que es una señal indicativa y no una comparación exacta.
+
+Detalle completo, metodología, resultados y limitaciones: [`docs/seleccion-de-modelos.md`](docs/seleccion-de-modelos.md) y [`docs/model-comparison.md`](docs/model-comparison.md). El benchmark se reproduce con `node scripts/model-bench.mjs`.
+
+## Funciones extra: vista previa, modo demo y evaluación de modelos
+
+**Vista previa en vivo.** El panel de archivos tiene dos pestañas, _Vista previa_ y _Código_. La vista previa transpila en el servidor los archivos aprobados, resuelve los imports entre ellos y monta el componente dentro de una web de ejemplo, con React cargado desde un CDN y Tailwind. Va en un `<iframe sandbox>` **sin** `allow-same-origin`, con una Content-Security-Policy que prohíbe cualquier conexión de red (`connect-src 'none'`). Así el código generado corre con un origen opaco: no puede leer las cookies de la app, ni su almacenamiento, ni llamar a ningún servidor. A diferencia de `node:vm`, esto sí es una frontera de seguridad real del navegador.
+
+**Demo con fallo inicial.** Con buenos modelos casi todo pasa a la primera, así que el bucle de corrección apenas se ve. Una casilla junto a «Nueva petición» hace que Develop entregue, a propósito, una primera versión con un defecto real (un campo sin etiqueta). Testing lo detecta, devuelve el feedback y Develop lo corrige en el segundo intento. El defecto lo inserta el código de forma determinista, se registra como _«Modo demo… No es un error del modelo»_ y el run lleva una etiqueta «Demo».
+
+**Evaluación de modelos (`/evals`).** Una página con la tabla del benchmark y un botón para **relanzar la evaluación de los dos modelos** desde la app: 6 pasos (3 pruebas por modelo), uno por llamada para caber en los límites serverless, sin respaldo entre proveedores para medir cada modelo por separado. Hay un límite de una evaluación cada 10 minutos, comprobado en la base de datos, para proteger la cuota gratuita.
+
+## Stack y decisiones
+
+| Pieza | Elección | Por qué |
+|---|---|---|
+| Framework | Next.js (App Router), TypeScript, Tailwind | Requisito del enunciado |
+| Base de datos | Neon (Postgres) + Drizzle ORM | Postgres real, plan gratuito que se reactiva solo; Supabase pausa el proyecto tras ~1 semana sin uso |
+| IA | Vercel AI SDK, NVIDIA + Gemini | Gratis y sin tarjeta; mismo código para ambos proveedores; permite el respaldo cruzado |
+| Orquestación | Máquina de estados propia en base de datos | Control total, fácil de explicar y la pantalla pinta directamente lo guardado |
+| Pantalla | Polling cada ~1,5 s | Más fiable en Vercel que el streaming, que choca con los timeouts serverless |
+| Acceso | Login con cookie firmada (HMAC, `httpOnly`, 8 h) | Protege la cuota gratuita de IA y permite un usuario de prueba |
+
+Alternativas descartadas y sus motivos en [`docs/seleccion-de-modelos.md`](docs/seleccion-de-modelos.md).
+
+## Ejecutar en local
+
+Requisitos: Node 22 y una base de datos Neon gratuita, más claves gratuitas de NVIDIA y Google.
+
+```bash
+npm install
+cp .env.example .env.local      # rellena las variables (ver abajo)
+npx drizzle-kit push            # crea las tablas en Neon
+npx tsx scripts/seed-demo.ts    # run de ejemplo (opcional)
+npx tsx scripts/seed-evals.ts   # resultados del benchmark manual (opcional)
+npm run dev
+```
+
+| Variable | Para qué |
+|---|---|
+| `DATABASE_URL` | Cadena de conexión de Neon (con pooling) |
+| `NVIDIA_API_KEY` | API de NVIDIA (modelo principal) |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | API de Gemini (respaldo) |
+| `DEMO_USER`, `DEMO_PASSWORD` | Usuario de prueba del login |
+| `SESSION_SECRET` | Firma de la cookie de sesión |
+
+**Nunca se suben claves al repositorio:** `.env.local` está ignorado y `.env.example` solo lleva marcadores.
+
+Comprobaciones: `npm run typecheck`, `npm run lint`, `npm test` y `npm run build` (lo mismo que ejecuta la integración continua).
+
+Scripts útiles: `npx tsx scripts/e2e-engine.ts "<petición>"` ejecuta el motor de principio a fin con los modelos reales (añade `--demo-failure` para el modo demo) y `npx tsx src/lib/testing/run-fixtures.ts` prueba los checks.
+
+## Despliegue
+
+Desplegado en **Vercel (plan Hobby)** con las variables de entorno configuradas en el proyecto. Dos detalles que importan:
+
+- **Región `iad1` (Washington D.C.)**, la más cercana a la base de datos de Neon (AWS US East 2, Ohio): el motor hace muchas consultas por paso.
+- **`next.config.ts` incluye en el bundle** las definiciones de TypeScript y de React que Testing necesita en tiempo de ejecución para compilar y renderizar. El trazado automático de Next no las detecta y, sin ello, Testing suspendería todas las tareas en producción.
+
+## Seguridad
+
+- Ninguna clave en el repositorio; el historial se revisó con búsqueda de patrones antes de publicarlo.
+- Login con cookie firmada, comparación de credenciales en tiempo constante, y límite de 5 intentos fallidos por IP en 10 minutos.
+- Todas las rutas de la API están protegidas por la sesión.
+- **Protección de la demo:** como máximo una ejecución en curso a la vez y 10 por hora, comprobado en la base de datos (respuestas 409 y 429 con mensaje claro), para que nadie agote la cuota gratuita de IA.
+- La vista previa ejecuta el código generado en un iframe aislado (origen opaco y sin red), como se explica arriba.
+- El código generado por los modelos se analiza de forma estática antes de ejecutarse y se renderiza en un entorno aislado con timeout (con la salvedad de `vm` explicada arriba).
+
+## Limitaciones conocidas
+
+- **No integra el código en un proyecto real**: genera y valida componentes, pero no abre pull requests ni modifica un repositorio.
+- **Testing comprueba estructura, no diseño**: no juzga si el resultado es bonito, correcto en contraste de color ni accesible con lector de pantalla; la accesibilidad es estática.
+- **El sandbox de Testing no es una frontera de seguridad real** (`node:vm`); el de la vista previa sí (iframe aislado).
+- **La vista previa depende de dos CDN** (esm.sh y jsDelivr) para cargar React y Tailwind en el navegador; si no responden, muestra un error legible en lugar de la página.
+- **Los criterios del Orquestador solo ven el estado inicial** del componente renderizado (no simulan clics ni envíos) y leen el HTML con expresiones regulares, suficiente para la salida de `renderToStaticMarkup`. Un criterio poco razonable puede hacer que una tarea agote sus 3 intentos.
+- **Los límites de uso no son atómicos**: dos peticiones exactamente simultáneas podrían pasar las dos.
+- **Dependencia de planes gratuitos**: pueden cambiar sus modelos, devolver 503 o saturarse; ya ocurrió con `gemini-2.5-flash` (retirado) y con `gemini-3.1-flash-lite` (503). Se mitiga con el respaldo cruzado y los timeouts.
+- **Muestras pequeñas** en el benchmark y en las ejecuciones de ejemplo (una por prueba), con heurísticas y sin revisión humana de la calidad.
+- **Límite de intentos del login en memoria**: no se comparte entre instancias serverless.
+- **Las pruebas automáticas cubren las piezas puras**, no el motor completo con base de datos: el flujo de extremo a extremo se prueba con un script que llama a los modelos reales, fuera de la integración continua.
+- El comportamiento depende de los modelos, que no son deterministas: una misma petición puede tardar distinto o necesitar más intentos.
+
+## Hoja de ruta
+
+- **Evaluación de modelos continua y más rigurosa**: varias muestras por prueba y a distintas horas, revisión humana de la calidad, medición de coste y cuotas, y reevaluar modelos grandes (Kimi, GLM, Mistral) cuando haya menos congestión. Hoy esos modelos no se pudieron medir por timeouts.
+- Sandbox de ejecución con aislamiento real (contenedor o microVM) también para Testing.
+- Tests de comportamiento en Testing: simular el envío del formulario vacío y válido y comprobar los mensajes.
+- Streaming en vivo del razonamiento de cada agente.
+- Salida hacia un repositorio real (rama y pull request) con integración continua.
+- Cola de tareas duradera para trabajos más largos.
+
+## Cómo usé Claude Code
+
+Programé el proyecto con **Claude Code** (desde su app de escritorio), no como autocompletado sino como compañero de trabajo con un método:
+
+- **Decisiones guiadas.** Antes de cada paso importante, Claude me planteaba opciones con ventajas e inconvenientes y una recomendación ajustada al enunciado (base de datos, modelos, alcance del trabajo de los agentes, orquestación, interfaz, acceso). Yo decidía. Las decisiones y sus motivos quedaron escritos.
+- **Memoria del proyecto.** El archivo [`CLAUDE.md`](CLAUDE.md) recoge el stack, las convenciones y los comandos, para que cada sesión empiece con el mismo contexto.
+- **Configuración reutilizable.** En [`.claude/`](.claude) están el comando `/verify` (tipos, lint, tests, checks, build, comprobación del bundle de Vercel y búsqueda de secretos) y el subagente `code-reviewer`, que recoge los criterios con los que se revisó cada entrega.
+- **Revisión crítica antes de entregar.** Con el proyecto ya funcionando, pedí a Claude Code que lo contrastara con el enunciado y señalara sus puntos débiles. De ahí salieron los criterios de aceptación (el Orquestador no repartía trabajo a Testing), la vista previa (el resultado no se veía como una página), la integración continua y los límites de uso.
+- **Subagentes por dificultad.** Repartí el trabajo entre subagentes de Claude Code, con un modelo más potente para lo difícil (el motor de agentes) y modelos más ligeros para lo mecánico (login, pantalla, checks, benchmark). Los lancé **en paralelo sobre archivos distintos** para que no se pisaran.
+- **Verificación independiente.** No acepté ninguna entrega sin comprobarla: ejecutaba `tsc`, `lint`, el build, las pruebas de los checks y ejecuciones reales con los modelos, y repasaba el código. Esa revisión encontró problemas reales que los propios subagentes no habían visto:
+  - **Un fallo silencioso en Vercel:** sin incluir las librerías de TypeScript y React en el bundle, Testing habría suspendido todas las tareas en producción. El primer arreglo no cubría la ruta de Evals (el patrón con `[id]` no casaba) y lo detecté leyendo el trazado del build.
+  - **Una decisión de modelos que no se sostenía:** tras desplegar, Gemini daba 503 repetidos; lo medí, invertí el reparto y documenté el cambio.
+  - **Un Orquestador demasiado rígido:** exigía 2 tareas como mínimo y fallaba con peticiones pequeñas, aunque los dos modelos respondían bien con 1.
+  - **Un perfil de checks mal aplicado:** un formulario de newsletter se evaluaba como formulario de contacto y obligaba a añadir campos que nadie había pedido. Se separó en un perfil genérico.
+- **Seguridad en el proceso.** Las claves nunca pasaron por el chat ni por los commits; las introduje yo en `.env.local` y en Vercel. Cuando una orden tocaba credenciales y el sistema pidió confirmación, se respetó. Los commits incluyen la co-autoría de Claude Code.
+- **Transparencia.** Las limitaciones y las mediciones se documentan tal cual, incluidas las que no salieron bien.

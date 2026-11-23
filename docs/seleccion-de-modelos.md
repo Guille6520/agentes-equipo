@@ -64,7 +64,7 @@ La tabla anterior es la decisión inicial. Con la app desplegada y la página `/
 
 Por eso **invertí los papeles**: Laguna es el modelo principal de los tres agentes y Gemini el respaldo. También acorté los timeouts por llamada (de 60 s a 30 s para Orquestador y Testing, y 45 s para Develop, que genera más código) para que el cambio de proveedor sea rápido.
 
-Resultado medido con la misma petición ("Añade una página de contacto a esta web"): el run completo pasó de 158 s con el reparto inicial a 39 s, con 0 respaldos. Es una sola ejecución, así que es indicativo, no concluyente.
+Resultado medido con la misma petición ("Añade una página de contacto a esta web"): antes del cambio, un run con fallo forzado (modo demo, con un intento extra de corrección) tardó 158 s, y un solo paso esperó 110 s por los 503; después, un run sin fallo forzado tardó 39 s con 0 respaldos. **No son ejecuciones equivalentes** (una incluía un intento extra), así que es una señal indicativa y no una comparación exacta.
 
 **Matiz honesto:** Laguna es un modelo pequeño para planificar y los 503 de Gemini son de disponibilidad en ese momento, no de calidad. Si Google se estabiliza, el reparto mixto podría volver a ser mejor. Cambiarlo es una línea en `src/lib/ai/models.ts`.
 
