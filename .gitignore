@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# keep the example env file
+!.env.example
+
+# private interview notes (not published)
+defensa/
+
+# project notes on how we work with Claude Code (publish later)
+CLAUDE.md
