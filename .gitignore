@@ -49,3 +49,6 @@ defensa/
 
 # local Claude Code settings (may contain personal permissions)
 .claude/settings.local.json
+
+# resultados de scripts/bench-prompts.ts
+scripts/.bench-prompts/

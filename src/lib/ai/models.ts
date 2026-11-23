@@ -67,14 +67,16 @@ export interface RoleChain {
 }
 
 /**
- * Cadena por rol. Laguna es el primario en los tres roles porque en las mediciones fue el único modelo
- * sin fallos; gemini-3.1-flash-lite es el primer respaldo y Groq el segundo, porque Gemini devolvió 503
- * de forma repetida y dejaba la cadena sin respaldo efectivo (ver docs/seleccion-de-modelos.md).
+ * Cadena por rol, decidida con el benchmark de los prompts reales del motor (docs/seguimiento-del-prompt.md):
+ * - gpt-oss-20b (Groq) es el principal: fue el único que acertó todas las pruebas y el más rápido.
+ * - Laguna (NVIDIA) es el primer respaldo: está en otro proveedor, así que cubre un 429 o una caída de Groq.
+ * - gpt-oss-120b (Groq) es el último: comparte proveedor con el principal y compiló peor en Develop.
+ * Gemini queda fuera mientras devuelva 503 de forma repetida (se sigue midiendo en /evals).
  */
 export const ROLE_MODELS: Record<Role, RoleChain> = {
-  orchestrator: { primary: LAGUNA, fallbacks: [GEMINI_FLASH_LITE, GROQ_FALLBACK] },
-  develop: { primary: LAGUNA, fallbacks: [GEMINI_FLASH_LITE, GROQ_FALLBACK] },
-  testing: { primary: LAGUNA, fallbacks: [GEMINI_FLASH_LITE, GROQ_FALLBACK] },
+  orchestrator: { primary: GROQ_GPT_OSS_20B, fallbacks: [LAGUNA, GROQ_GPT_OSS_120B] },
+  develop: { primary: GROQ_GPT_OSS_20B, fallbacks: [LAGUNA, GROQ_GPT_OSS_120B] },
+  testing: { primary: GROQ_GPT_OSS_20B, fallbacks: [LAGUNA, GROQ_GPT_OSS_120B] },
 };
 
 export class MissingKeyError extends Error {

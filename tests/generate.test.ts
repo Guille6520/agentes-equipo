@@ -76,12 +76,18 @@ async function simulate(script: Record<string, Array<"ok" | Error>>) {
 }
 
 describe("cadena de respaldo", () => {
-  it("los tres roles usan Laguna -> Gemini -> Groq", () => {
+  it("los tres roles usan gpt-oss-20b -> Laguna -> gpt-oss-120b", () => {
     for (const chain of Object.values(ROLE_MODELS)) {
       assert.deepEqual(
-        chainSteps(chain).map((s) => [s.spec.provider, s.maxAttempts]),
-        [["nvidia", 2], ["google", 1], ["groq", 1]],
+        chainSteps(chain).map((s) => [s.spec.label, s.maxAttempts]),
+        [["gpt-oss-20b", 2], ["laguna-xs-2.1", 1], ["gpt-oss-120b", 1]],
       );
+    }
+  });
+
+  it("el primer respaldo está en un proveedor distinto del principal", () => {
+    for (const chain of Object.values(ROLE_MODELS)) {
+      assert.notEqual(chain.fallbacks[0].provider, chain.primary.provider);
     }
   });
 
