@@ -1,4 +1,4 @@
-import { boolean, integer, pgEnum, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, integer, jsonb, pgEnum, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 
 export const agentEnum = pgEnum("agent", ["orchestrator", "develop", "testing"]);
 export const runStatusEnum = pgEnum("run_status", ["running", "passed", "failed"]);
@@ -68,4 +68,41 @@ export const events = pgTable("events", {
   agent: agentEnum("agent").notNull(),
   message: text("message").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// --- Evaluación de modelos (tablas aditivas, independientes de los runs de los agentes) ---
+
+/** Una evaluación de modelos: el benchmark manual del 23/11/2026 o un relanzamiento desde la app. */
+export const evalRuns = pgTable("eval_runs", {
+  id: serial("id").primaryKey(),
+  /** "manual-2026-11-23" (histórico cargado por seed) o "app" (relanzado desde /evals). */
+  origin: text("origin").notNull(),
+  /** "running" | "done" | "abandoned". */
+  status: text("status").notNull().default("running"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  finishedAt: timestamp("finished_at"),
+  /** Lease por evaluación: solo una función ejecuta un paso a la vez. */
+  lockedUntil: timestamp("locked_until"),
+  lockToken: text("lock_token"),
+});
+
+/** Resultado de una prueba (orchestrator | develop | testing) de un modelo dentro de una evaluación. */
+export const evalResults = pgTable("eval_results", {
+  id: serial("id").primaryKey(),
+  runId: integer("run_id")
+    .notNull()
+    .references(() => evalRuns.id, { onDelete: "cascade" }),
+  model: text("model").notNull(),
+  provider: text("provider").notNull(),
+  test: text("test").notNull(),
+  /** Orden de ejecución dentro de la evaluación (0..n). */
+  step: integer("step").notNull().default(0),
+  /** "pending" | "done" | "not_measured" (el informe manual no lo midió). */
+  status: text("status").notNull().default("pending"),
+  /** null = sin veredicto (pendiente o no medido). */
+  ok: boolean("ok"),
+  metrics: jsonb("metrics").$type<Record<string, unknown>>(),
+  error: text("error"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  finishedAt: timestamp("finished_at"),
 });
