@@ -37,7 +37,7 @@ export async function runEvalStep(spec: ModelSpec, test: EvalTest): Promise<Step
     tokens = res.usage?.outputTokens ?? null;
   } catch (e) {
     const d = describeError(e);
-    // describeError usa el timeout de generate.ts (60 s); aquí el real es EVAL_TIMEOUT_MS.
+    // describeError devuelve "timeout" sin duración; aquí el real es EVAL_TIMEOUT_MS.
     const reason = /^timeout/.test(d.reason) ? `timeout ${EVAL_TIMEOUT_MS / 1000} s` : d.reason;
     return { ok: false, metrics: { latencyMs: Date.now() - t0 }, error: reason };
   }

@@ -1,6 +1,6 @@
 // Llamada a un modelo con timeout, un reintento con backoff y respaldo cruzado de proveedor.
 //
-// Política por llamada lógica (peor caso ~3 x TIMEOUT_MS + backoff):
+// Política por llamada lógica (peor caso ~3 x timeout del rol + backoff):
 //   1. Modelo primario.
 //   2. Si el fallo es transitorio (timeout, red, 429, 5xx o salida inválida): espera y reintenta una vez.
 //   3. Si sigue fallando (o el fallo no es transitorio: 401/404, falta la clave): un intento con el
@@ -10,7 +10,13 @@ import { APICallError, generateText } from "ai";
 import type { z } from "zod";
 import { getLanguageModel, MissingKeyError, ROLE_MODELS, type ModelSpec, type Role } from "./models";
 
-export const TIMEOUT_MS = 60_000;
+// Timeout por llamada y rol: corto para que el respaldo entre pronto si un proveedor se queda colgado.
+// Develop escribe más código y necesita algo más de margen (Laguna tarda ~15-20 s).
+const TIMEOUT_BY_ROLE_MS: Record<Role, number> = {
+  orchestrator: 30_000,
+  develop: 45_000,
+  testing: 30_000,
+};
 const BACKOFF_MS = 2_000;
 const BACKOFF_429_MS = 6_000;
 
@@ -63,7 +69,7 @@ export function describeError(e: unknown): { reason: string; retryable: boolean;
   const name = e instanceof Error ? e.name : "";
   const msg = e instanceof Error ? e.message : String(e);
   if (/timeout|abort/i.test(name) || /timed? ?out|aborted/i.test(msg)) {
-    return { reason: `timeout ${TIMEOUT_MS / 1000} s`, retryable: true };
+    return { reason: "timeout", retryable: true };
   }
   // Errores con causa APICallError (p. ej. RetryError) o desconocidos: se reintentan una vez.
   const cause = (e as { cause?: unknown })?.cause;
@@ -79,7 +85,7 @@ async function callOnce<T>(spec: ModelSpec, opts: CallOptions<T>): Promise<T> {
     maxOutputTokens: opts.maxOutputTokens ?? 4096,
     temperature: opts.temperature ?? 0.2,
     maxRetries: 0, // los reintentos los gestiona esta capa
-    timeout: TIMEOUT_MS,
+    timeout: TIMEOUT_BY_ROLE_MS[opts.role],
   });
   try {
     return opts.parse(text);

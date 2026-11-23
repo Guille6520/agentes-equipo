@@ -30,11 +30,15 @@ export const LAGUNA: ModelSpec = {
 
 const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
 
-/** Primario y respaldo por rol: cada proveedor cubre al otro. */
+/**
+ * Primario y respaldo por rol: cada proveedor cubre al otro.
+ * Laguna es el primario en los tres roles porque en las mediciones fue el único modelo sin fallos,
+ * mientras que gemini-3.1-flash-lite devolvió 503 de forma repetida (ver docs/seleccion-de-modelos.md).
+ */
 export const ROLE_MODELS: Record<Role, { primary: ModelSpec; fallback: ModelSpec }> = {
-  orchestrator: { primary: GEMINI_FLASH_LITE, fallback: LAGUNA },
+  orchestrator: { primary: LAGUNA, fallback: GEMINI_FLASH_LITE },
   develop: { primary: LAGUNA, fallback: GEMINI_FLASH_LITE },
-  testing: { primary: GEMINI_FLASH_LITE, fallback: LAGUNA },
+  testing: { primary: LAGUNA, fallback: GEMINI_FLASH_LITE },
 };
 
 export class MissingKeyError extends Error {

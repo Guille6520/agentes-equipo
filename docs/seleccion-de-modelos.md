@@ -58,6 +58,16 @@ Hallazgos:
 
 Los modelos que yo esperaba usar (Kimi, GLM, Mistral, Gemini 2.5 Flash) no servían en las condiciones reales. Cambié la decisión porque medí, no por preferencia.
 
+### Revisión tras desplegar en Vercel (23/11/2026)
+
+La tabla anterior es la decisión inicial. Con la app desplegada y la página `/evals` relanzando la evaluación en producción, `gemini-3.1-flash-lite` devolvió HTTP 503 de forma repetida: en dos relanzamientos hubo timeouts y 503, en una ejecución con fallo forzado un 503 hizo que un solo paso tardara 110 s, y en el último relanzamiento las tres pruebas fallaron con 503. Laguna no falló en ninguna ejecución.
+
+Por eso **invertí los papeles**: Laguna es el modelo principal de los tres agentes y Gemini el respaldo. También acorté los timeouts por llamada (de 60 s a 30 s para Orquestador y Testing, y 45 s para Develop, que genera más código) para que el cambio de proveedor sea rápido.
+
+Resultado medido con la misma petición ("Añade una página de contacto a esta web"): el run completo pasó de 158 s con el reparto inicial a 39 s, con 0 respaldos. Es una sola ejecución, así que es indicativo, no concluyente.
+
+**Matiz honesto:** Laguna es un modelo pequeño para planificar y los 503 de Gemini son de disponibilidad en ese momento, no de calidad. Si Google se estabiliza, el reparto mixto podría volver a ser mejor. Cambiarlo es una línea en `src/lib/ai/models.ts`.
+
 ## 6. Limitaciones
 
 - **Muestras mínimas:** una ejecución por prueba y un solo prompt por agente; no se midió la variabilidad.
