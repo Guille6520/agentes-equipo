@@ -1,6 +1,8 @@
 import { desc } from "drizzle-orm";
+import { after } from "next/server";
 import { z } from "zod";
 import { db, events, runs } from "@/db";
+import { advanceLoop } from "@/lib/engine";
 import type { CreateRunResponse, RunListResponse } from "@/lib/types";
 import { toRunDTO } from "./_serialize";
 
@@ -8,6 +10,13 @@ import { toRunDTO } from "./_serialize";
 // (y con cacheComponents no se permite `export const dynamic`), así que no hay caché.
 
 const NO_STORE = { "Cache-Control": "no-store" };
+
+// Vercel Hobby (Fluid Compute, activo por defecto) permite hasta 300 s por función; `after()` corre
+// dentro de ese mismo límite. Si el proyecto tuviera Fluid desactivado el máximo sería 60 s: el bucle
+// se cortaría antes y la UI terminaría el run con POST /api/runs/[id]/advance.
+export const maxDuration = 300;
+/** Solo se empieza un paso nuevo si han pasado menos de 200 s (margen para un paso lento). */
+const LOOP_BUDGET_MS = 200_000;
 
 export async function GET() {
   try {
@@ -39,7 +48,7 @@ export async function POST(req: Request) {
   try {
     const [run] = await db
       .insert(runs)
-      .values({ request: parsed.data.request, status: "running" })
+      .values({ request: parsed.data.request, status: "running", engineManaged: true })
       .returning();
 
     await db.insert(events).values({
@@ -48,9 +57,15 @@ export async function POST(req: Request) {
       message: "Petición recibida",
     });
 
-    // TODO(motor): aquí hay que lanzar el motor de agentes (orquestador ->
-    // develop -> testing) para este run. De momento solo se crea el run y el
-    // evento inicial; el motor real se conectará más adelante.
+    // Motor: se responde ya y los agentes trabajan después de la respuesta. Cada paso persiste su
+    // estado en BD; si este bucle se corta, la UI lo retoma llamando a /api/runs/[id]/advance.
+    after(async () => {
+      try {
+        await advanceLoop(run.id, { budgetMs: LOOP_BUDGET_MS });
+      } catch (e) {
+        console.error("[engine] bucle de avance interrumpido", run.id, e instanceof Error ? e.message : e);
+      }
+    });
 
     const body: CreateRunResponse = { run: toRunDTO(run) };
     return Response.json(body, { status: 201, headers: NO_STORE });

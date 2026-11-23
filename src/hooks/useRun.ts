@@ -11,6 +11,8 @@ import type {
 } from "@/lib/types";
 
 const POLL_MS = 1500;
+/** Si un run en curso no emite eventos en este tiempo, se pide un paso a /advance (recuperación). */
+const STALL_MS = 20_000;
 
 interface State {
   runs: RunDTO[];
@@ -55,6 +57,14 @@ export function useRun(selectedId: number | null) {
     runId: null,
     lastEventId: 0,
   });
+  // Vigilancia de runs parados: última vez que vimos progreso, si hay un avance en vuelo y los
+  // runs que el motor no gestiona (p. ej. el de demo), para no insistir con ellos.
+  const watchdog = useRef<{ runId: number | null; lastProgressAt: number; inFlight: boolean; idle: Set<number> }>({
+    runId: null,
+    lastProgressAt: 0,
+    inFlight: false,
+    idle: new Set(),
+  });
 
   useEffect(() => {
     let stopped = false;
@@ -80,6 +90,7 @@ export function useRun(selectedId: number | null) {
           if (stopped) return;
           const last = detail.events[detail.events.length - 1];
           if (last) cursor.current.lastEventId = last.id;
+          checkStalled(runId, detail, last);
           setState((s) => {
             const sameRun = s.runId === runId;
             const known = new Set((sameRun ? s.events : []).map((e) => e.id));
@@ -105,6 +116,34 @@ export function useRun(selectedId: number | null) {
         }));
       }
       if (!stopped && !document.hidden) timer = setTimeout(tick, POLL_MS);
+    }
+
+    /** Si el run está en curso y lleva STALL_MS sin eventos, pide un paso al motor (mismo lease que el bucle). */
+    function checkStalled(runId: number, detail: RunDetailResponse, last: EventDTO | undefined) {
+      const w = watchdog.current;
+      const now = Date.now();
+      if (w.runId !== runId) {
+        // Primera vez que vemos este run: si su último evento ya es antiguo, se considera parado.
+        const lastAt = last ? Date.parse(last.createdAt) : Date.parse(detail.run.createdAt);
+        w.runId = runId;
+        w.lastProgressAt = now - lastAt > STALL_MS ? 0 : now;
+      } else if (last) {
+        w.lastProgressAt = now;
+      }
+      if (detail.run.status !== "running" || w.inFlight || w.idle.has(runId)) return;
+      if (now - w.lastProgressAt < STALL_MS) return;
+
+      w.inFlight = true;
+      fetch(`/api/runs/${runId}/advance`, { method: "POST", cache: "no-store" })
+        .then((res) => (res.ok ? (res.json() as Promise<{ outcome?: string; more?: boolean }>) : null))
+        .then((r) => {
+          if (r && r.outcome === "idle" && !r.more) w.idle.add(runId);
+        })
+        .catch(() => {})
+        .finally(() => {
+          w.inFlight = false;
+          if (w.runId === runId) w.lastProgressAt = Date.now();
+        });
     }
 
     function onVisibility() {
