@@ -60,7 +60,9 @@ Otros ejemplos razonables: una tabla de precios con tres planes, un formulario d
 
 Cada resultado anterior es **una sola ejecución**: indica lo que ocurrió, no una media.
 
-**Lo que no admite** (por diseño): backend o API propios, acceso a base de datos, librerías externas, `next/link` o rutas de Next, archivos CSS, y tareas que no sean un componente renderizable (tests, despliegue, configuración).
+**Lo que no admite** (por diseño): vídeo, audio o imágenes raster, backend o API propios, acceso a base de datos, librerías externas, `next/link` o rutas de Next, archivos CSS, y tareas que no sean un componente renderizable (tests, despliegue, configuración). Sí admite dibujos, iconos y logotipos en SVG, porque son código dentro del componente (probado: _«Crea un logotipo en SVG de una taza de café»_ pasó a la primera en 17 s).
+
+**Cortafuegos de alcance.** Si la petición está claramente fuera de lo que sabe hacer, el Orquestador no inventa tareas: responde que está fuera de alcance y el run se cierra en ese momento con el motivo y ejemplos de lo que sí se puede pedir, sin reintentos ni llamadas a Develop. Probado con _«Hazme un vídeo de un gato bailando»_: antes daba 3 reintentos y un error confuso en 30 s; ahora, un mensaje claro en unos 3 s. En caso de duda, el Orquestador planifica en lugar de rechazar, para no bloquear peticiones válidas.
 
 ## Cómo funciona
 
@@ -77,7 +79,7 @@ flowchart LR
   S --> D["Develop"]
   S --> T["Testing"]
   O & D & T --> DB
-  D & T --> M["Laguna (principal) / Gemini (respaldo)"]
+  D & T --> M["Laguna (principal) → Gemini → Groq (respaldos)"]
 ```
 
 ### Estado en base de datos, no en memoria
@@ -106,7 +108,7 @@ Ambos pasan por la misma función y el mismo lease.
 
 ### Fallos de modelo
 
-Cada llamada tiene timeout (30 s Orquestador y Testing, 45 s Develop), un reintento con espera y, si sigue fallando, el **respaldo en el otro proveedor**. El cambio queda registrado como evento visible. Si fallan los dos proveedores 3 pasos seguidos, el run se detiene.
+Cada llamada tiene timeout (30 s Orquestador y Testing, 45 s Develop), un reintento con espera y, si sigue fallando, una **cadena de respaldos en otros proveedores**: Gemini y después Groq, con un intento cada uno. Cada salto queda registrado como evento visible («X falla; uso Y como respaldo»), y un proveedor sin clave configurada se salta sin parar la cadena. Si fallan todos los modelos 3 pasos seguidos, el run se detiene.
 
 ## El agente Testing
 
@@ -130,19 +132,20 @@ Hay tres perfiles según la tarea: **contact-form** (exige nombre, email y mensa
 ### Pruebas automáticas
 
 - **19 casos de los checks de Testing** (componentes correctos y con un fallo plantado, incluidos un bucle infinito y criterios incumplidos): `npx tsx src/lib/testing/run-fixtures.ts`.
-- **37 tests** con el runner nativo de Node para las piezas puras del motor: interpretación de las respuestas de los modelos, clasificación de errores, perfiles de checks, inyección del defecto del modo demo y límites de uso: `npm test`.
+- **44 tests** con el runner nativo de Node para las piezas puras del motor: interpretación de las respuestas de los modelos, clasificación de errores, orden y saltos de la cadena de respaldo (con un modelo simulado), perfiles de checks, inyección del defecto del modo demo y límites de uso: `npm test`.
 - **Integración continua** en GitHub Actions en cada push: tipos, lint, tests y build, sin secretos ni llamadas a modelos.
 
 ## Modelos de IA
 
-Los agentes usan **planes gratuitos**, como pedía el enunciado: `poolside/laguna-xs-2.1` (NVIDIA) como modelo principal de los tres agentes y `gemini-3.1-flash-lite` (Google) como respaldo, con el Vercel AI SDK.
+Los agentes usan **planes gratuitos**, como pedía el enunciado: `poolside/laguna-xs-2.1` (NVIDIA) como modelo principal de los tres agentes y, como respaldos en este orden, `gemini-3.1-flash-lite` (Google) y `openai/gpt-oss-20b` (Groq), con el Vercel AI SDK.
 
 La elección salió de un benchmark y se corrigió con datos reales en producción:
 
 1. Un benchmark de 8 modelos con la misma petición. Solo dos completaron las tres pruebas.
 2. El reparto inicial era mixto (Gemini para Orquestador y Testing). Una vez desplegado, Gemini devolvió 503 de forma repetida y Laguna no falló nunca, así que se invirtieron los papeles y se acortaron los timeouts. Antes del cambio, un run con fallo forzado tardó 158 s, y un paso de ese run esperó 110 s por los 503; después, un run sin fallo forzado tardó 39 s con 0 respaldos. No son ejecuciones equivalentes (una incluía un intento extra de corrección), así que es una señal indicativa y no una comparación exacta.
+3. Con Gemini dando 503, el respaldo no servía de nada en la práctica, así que se añadió Groq como tercer proveedor. Se midieron sus tres modelos de chat gratuitos con las mismas pruebas que `/evals`, dos veces cada una: `gpt-oss-20b` acertó 6 de 6 con 1,2 s de media, `gpt-oss-120b` 5 de 6 (un componente que no compilaba) y `qwen3.8-27b` 5 de 6 (límite 429 del plan gratuito). Se eligió `gpt-oss-20b`. Son muestras pequeñas: sirven para escoger un respaldo, no para clasificar modelos.
 
-Detalle completo, metodología, resultados y limitaciones: [`docs/seleccion-de-modelos.md`](docs/seleccion-de-modelos.md) y [`docs/model-comparison.md`](docs/model-comparison.md). El benchmark se reproduce con `node scripts/model-bench.mjs`.
+Detalle completo, metodología, resultados y limitaciones: [`docs/seleccion-de-modelos.md`](docs/seleccion-de-modelos.md) y [`docs/model-comparison.md`](docs/model-comparison.md). El benchmark se reproduce con `node scripts/model-bench.mjs` y el de Groq con `npx tsx scripts/bench-groq.ts`.
 
 ## Funciones extra: vista previa, modo demo y evaluación de modelos
 
@@ -150,7 +153,7 @@ Detalle completo, metodología, resultados y limitaciones: [`docs/seleccion-de-m
 
 **Demo con fallo inicial.** Con buenos modelos casi todo pasa a la primera, así que el bucle de corrección apenas se ve. Una casilla junto a «Nueva petición» hace que Develop entregue, a propósito, una primera versión con un defecto real (un campo sin etiqueta). Testing lo detecta, devuelve el feedback y Develop lo corrige en el segundo intento. El defecto lo inserta el código de forma determinista, se registra como _«Modo demo… No es un error del modelo»_ y el run lleva una etiqueta «Demo».
 
-**Evaluación de modelos (`/evals`).** Una página con la tabla del benchmark y un botón para **relanzar la evaluación de los dos modelos** desde la app: 6 pasos (3 pruebas por modelo), uno por llamada para caber en los límites serverless, sin respaldo entre proveedores para medir cada modelo por separado. Hay un límite de una evaluación cada 10 minutos, comprobado en la base de datos, para proteger la cuota gratuita.
+**Evaluación de modelos (`/evals`).** Una página con la tabla del benchmark y un botón para **relanzar la evaluación de los tres modelos de la cadena** (Laguna, Gemini y `gpt-oss-20b`) desde la app: 9 pasos (3 pruebas por modelo), uno por llamada para caber en los límites serverless, sin respaldo entre proveedores para medir cada modelo por separado. Hay un límite de una evaluación cada 10 minutos, comprobado en la base de datos, para proteger la cuota gratuita.
 
 ## Stack y decisiones
 
@@ -158,7 +161,7 @@ Detalle completo, metodología, resultados y limitaciones: [`docs/seleccion-de-m
 |---|---|---|
 | Framework | Next.js (App Router), TypeScript, Tailwind | Requisito del enunciado |
 | Base de datos | Neon (Postgres) + Drizzle ORM | Postgres real, plan gratuito que se reactiva solo; Supabase pausa el proyecto tras ~1 semana sin uso |
-| IA | Vercel AI SDK, NVIDIA + Gemini | Gratis y sin tarjeta; mismo código para ambos proveedores; permite el respaldo cruzado |
+| IA | Vercel AI SDK, NVIDIA + Gemini + Groq | Gratis y sin tarjeta; mismo código para los tres proveedores; permite la cadena de respaldo |
 | Orquestación | Máquina de estados propia en base de datos | Control total, fácil de explicar y la pantalla pinta directamente lo guardado |
 | Pantalla | Polling cada ~1,5 s | Más fiable en Vercel que el streaming, que choca con los timeouts serverless |
 | Acceso | Login con cookie firmada (HMAC, `httpOnly`, 8 h) | Protege la cuota gratuita de IA y permite un usuario de prueba |
@@ -167,7 +170,7 @@ Alternativas descartadas y sus motivos en [`docs/seleccion-de-modelos.md`](docs/
 
 ## Ejecutar en local
 
-Requisitos: Node 22 y una base de datos Neon gratuita, más claves gratuitas de NVIDIA y Google.
+Requisitos: Node 22 y una base de datos Neon gratuita, más claves gratuitas de NVIDIA, Google y Groq (la de Groq es opcional: sin ella ese respaldo se salta).
 
 ```bash
 npm install
@@ -182,7 +185,8 @@ npm run dev
 |---|---|
 | `DATABASE_URL` | Cadena de conexión de Neon (con pooling) |
 | `NVIDIA_API_KEY` | API de NVIDIA (modelo principal) |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | API de Gemini (respaldo) |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | API de Gemini (primer respaldo) |
+| `GROQ_API_KEY` | API de Groq (segundo respaldo, `openai/gpt-oss-20b`) |
 | `DEMO_USER`, `DEMO_PASSWORD` | Usuario de prueba del login |
 | `SESSION_SECRET` | Firma de la cookie de sesión |
 
@@ -216,7 +220,7 @@ Desplegado en **Vercel (plan Hobby)** con las variables de entorno configuradas 
 - **La vista previa depende de dos CDN** (esm.sh y jsDelivr) para cargar React y Tailwind en el navegador; si no responden, muestra un error legible en lugar de la página.
 - **Los criterios del Orquestador solo ven el estado inicial** del componente renderizado (no simulan clics ni envíos) y leen el HTML con expresiones regulares, suficiente para la salida de `renderToStaticMarkup`. Un criterio poco razonable puede hacer que una tarea agote sus 3 intentos.
 - **Los límites de uso no son atómicos**: dos peticiones exactamente simultáneas podrían pasar las dos.
-- **Dependencia de planes gratuitos**: pueden cambiar sus modelos, devolver 503 o saturarse; ya ocurrió con `gemini-2.5-flash` (retirado) y con `gemini-3.1-flash-lite` (503). Se mitiga con el respaldo cruzado y los timeouts.
+- **Dependencia de planes gratuitos**: pueden cambiar sus modelos, devolver 503 o saturarse; ya ocurrió con `gemini-2.5-flash` (retirado) y con `gemini-3.1-flash-lite` (503). Se mitiga con la cadena de respaldo de tres proveedores y los timeouts.
 - **Muestras pequeñas** en el benchmark y en las ejecuciones de ejemplo (una por prueba), con heurísticas y sin revisión humana de la calidad.
 - **Límite de intentos del login en memoria**: no se comparte entre instancias serverless.
 - **Las pruebas automáticas cubren las piezas puras**, no el motor completo con base de datos: el flujo de extremo a extremo se prueba con un script que llama a los modelos reales, fuera de la integración continua.

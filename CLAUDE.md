@@ -5,10 +5,11 @@ Prueba técnica: tres agentes de IA que colaboran. El Orquestador divide una pet
 ## Stack
 - Next.js (App Router) + TypeScript + Tailwind, desplegado en Vercel.
 - Neon (Postgres) con Drizzle ORM. Esquema en `src/db/schema.ts`.
-- Vercel AI SDK, con un modelo por agente y respaldo cruzado entre proveedores (ver `docs/model-comparison.md`):
-  Los tres agentes usan `poolside/laguna-xs-2.1` (NVIDIA, API compatible con OpenAI) como principal y
-  `gemini-3.1-flash-lite` como respaldo. Se invirtió el reparto inicial porque Gemini dio 503 repetidos.
-  Timeout por llamada: 30 s (Orquestador, Testing) y 45 s (Develop); si un proveedor falla, el otro cubre.
+- Vercel AI SDK, con una cadena de respaldo entre proveedores (ver `docs/seleccion-de-modelos.md`):
+  los tres agentes usan `poolside/laguna-xs-2.1` (NVIDIA) como principal y, en orden, `gemini-3.1-flash-lite`
+  (Google) y `openai/gpt-oss-20b` (Groq) como respaldos (`ROLE_MODELS` en `src/lib/ai/models.ts`). Groq se
+  añadió porque los 503 de Gemini dejaban sin respaldo efectivo. Timeout por llamada: 30 s (Orquestador,
+  Testing) y 45 s (Develop); el primario tiene un reintento y cada respaldo un intento.
 - Orquestación: máquina de estados propia; tareas y estados persistidos en BD.
 - UI en vivo: tablero de tareas + estado de cada agente + log de eventos, con polling.
 
@@ -25,5 +26,6 @@ Prueba técnica: tres agentes de IA que colaboran. El Orquestador divide una pet
 - `npm run dev` · `npm run build` · `npm run lint` · `npm run typecheck` · `npm test`
 - `npx tsx src/lib/testing/run-fixtures.ts` prueba los checks de Testing.
 - `npx tsx scripts/e2e-engine.ts "<petición>" [--demo-failure]` ejecuta el motor con modelos reales.
+- `npx tsx scripts/bench-groq.ts` mide los candidatos de Groq con las pruebas de `/evals` (sin respaldo).
 - `npx drizzle-kit push` aplica el esquema a Neon.
 - `/verify` (en `.claude/commands/`) ejecuta toda la verificación; el subagente `code-reviewer` revisa entregas.

@@ -68,13 +68,44 @@ Resultado medido con la misma petición ("Añade una página de contacto a esta 
 
 **Matiz honesto:** Laguna es un modelo pequeño para planificar y los 503 de Gemini son de disponibilidad en ese momento, no de calidad. Si Google se estabiliza, el reparto mixto podría volver a ser mejor. Cambiarlo es una línea en `src/lib/ai/models.ts`.
 
+### Tercer proveedor: Groq (23/11/2026)
+
+**Motivo.** Con Laguna de principal y Gemini como único respaldo, los 503 repetidos de `gemini-3.1-flash-lite` dejaban la cadena **sin respaldo efectivo**: si NVIDIA fallaba, el respaldo también solía fallar. Se añadió Groq (plan gratuito, API compatible con OpenAI) como tercer proveedor.
+
+**Cómo se midió.** `scripts/bench-groq.ts` ejecuta las **mismas tres pruebas y la misma puntuación que la página `/evals`** (`src/lib/evals`: Orquestador con JSON de 3-5 tareas, Develop medido con `runChecks` perfil `contact-form`, Testing con los 2 fallos plantados), llamando a cada modelo **sin respaldo**. Cada prueba se ejecutó **2 veces** por modelo, en secuencia, con 8 s de pausa entre llamadas. Si llega un 429, espera 30 s y repite esa llamada una vez (queda anotado).
+
+| Modelo | Prueba | Ejecución 1 | Ejecución 2 |
+|---|---|---|---|
+| `openai/gpt-oss-20b` | Orquestador | JSON válido, 4 tareas, 0,7 s | JSON válido, 4 tareas, 0,9 s |
+| `openai/gpt-oss-20b` | Develop | Compila, 5/5 checks, 2,1 s | Compila, 5/5 checks, 1,7 s |
+| `openai/gpt-oss-20b` | Testing | 2/2 fallos, 1,0 s | 2/2 fallos, 0,8 s |
+| `openai/gpt-oss-120b` | Orquestador | JSON válido, 5 tareas, 1,3 s | JSON válido, 5 tareas, 0,8 s |
+| `openai/gpt-oss-120b` | Develop | **No compila** (TS2322 en `<style jsx>`), 4/5, 3,8 s | Compila, 5/5 checks, 4,7 s |
+| `openai/gpt-oss-120b` | Testing | 2/2 fallos, 1,0 s | 2/2 fallos, 0,7 s |
+| `qwen/qwen3.8-27b` | Orquestador | JSON válido, 4 tareas, 1,0 s | JSON válido, 4 tareas, 1,1 s |
+| `qwen/qwen3.8-27b` | Develop | Compila, **3/7 checks** (campos sin label, falta «mensaje»), 12,5 s | Compila, 5/5 checks, 8,5 s (tras un 429 y repetir) |
+| `qwen/qwen3.8-27b` | Testing | **HTTP 429** también al repetir | 2/2 fallos, 0,9 s |
+
+Resumen: `gpt-oss-20b` 6 de 6 correctas, sin errores, latencia media 1,2 s; `gpt-oss-120b` 5 de 6, latencia media 2,1 s; `qwen3.8-27b` 5 de 6, dos 429 (uno resuelto al repetir), latencia media 3,9 s. El total de checks de Develop varía entre ejecuciones porque `runChecks` añade comprobaciones según lo que encuentra en el código (los 9 checks del informe inicial venían de otro script, `model-bench.mjs`, y no son comparables).
+
+**Elección: `openai/gpt-oss-20b`.** Criterio: fiabilidad primero, después calidad, después latencia. Es el único de los tres sin ningún fallo ni error en las 6 llamadas, sacó 5/5 en Develop las dos veces y además fue el más rápido. `gpt-oss-120b` tuvo un Develop que no compilaba y Qwen chocó con el límite gratuito (429) y entregó una vez un formulario incompleto.
+
+**Cadena resultante** (`ROLE_MODELS` en `src/lib/ai/models.ts`), igual en los tres roles: `laguna-xs-2.1` (primario, intento + 1 reintento si el fallo es transitorio) → `gemini-3.1-flash-lite` (1 intento) → `gpt-oss-20b` en Groq (1 intento). Cada salto se registra como evento («X falla (motivo); uso Y como respaldo»). Si falta la clave de un proveedor, ese eslabón falla al instante y se pasa al siguiente. Se comprobó con un run real del motor dejando vacías las claves de NVIDIA y Google solo en ese proceso: el Orquestador y Develop llegaron a `gpt-oss-20b` y el run terminó aprobado. `gpt-oss-20b` es además el tercer finalista que se relanza desde `/evals` (9 pasos).
+
+**Limitaciones.**
+
+- Muestras pequeñas: 2 ejecuciones por prueba y un solo prompt por agente. Un 6 de 6 frente a un 5 de 6 no es una diferencia estadística; es una señal suficiente para elegir un respaldo, no una clasificación de los modelos.
+- Los límites del plan gratuito de Groq (peticiones y tokens por minuto, por modelo) cambian y no son una garantía: Qwen dio 429 incluso con 8 s de pausa, probablemente por el límite de tokens (es el que más tokens genera).
+- Los modelos `gpt-oss` razonan antes de responder; con el tope de 4096 tokens de salida no hubo respuestas cortadas en estas pruebas, pero peticiones más grandes podrían acercarse.
+- Solo se midió con la petición del formulario de contacto. En la prueba de la cadena forzada, Testing aprobó con los checks deterministas y no llegó a llamar al modelo, así que Groq en el rol de Testing solo está medido por el benchmark.
+
 ## 6. Limitaciones
 
 - **Muestras mínimas:** una ejecución por prueba y un solo prompt por agente; no se midió la variabilidad.
 - **Heurísticas:** "sensato" y "detecta los fallos" se evalúan con expresiones regulares y la forma del JSON, sin revisión humana.
 - **"Compila" no es "funciona":** solo significa que pasa el chequeo de tipos. No se ejecutó en un navegador ni con lector de pantalla.
 - **Calidad sin medir** de Kimi, GLM, Mistral y MiniMax por los timeouts. Convendría repetir en otro horario.
-- **Dependencia de planes gratuitos:** pueden cambiar (ya ocurrió con `gemini-2.5-flash`), devolver 503 o congestionarse. Mitigación: respaldo cruzado, límite de iteraciones y modelos configurables en un solo archivo.
+- **Dependencia de planes gratuitos:** pueden cambiar (ya ocurrió con `gemini-2.5-flash`), devolver 503 o congestionarse. Mitigación: cadena de respaldo con tres proveedores (NVIDIA, Google, Groq), límite de iteraciones y modelos configurables en un solo archivo.
 - **Términos:** el acceso gratuito de NVIDIA es para prototipos; producción requeriría licencia.
 - **Costes y cuotas de producción:** no medidos.
 
@@ -86,3 +117,10 @@ node scripts/model-bench.mjs --only=poolside/laguna-xs-2.1,gemini-3.1-flash-lite
 ```
 
 Requiere `NVIDIA_API_KEY` y `GOOGLE_GENERATIVE_AI_API_KEY` en `.env.local` (ver `.env.example`).
+
+Benchmark de los candidatos de Groq (mismas pruebas que `/evals`, requiere `GROQ_API_KEY`):
+
+```bash
+npx tsx scripts/bench-groq.ts                 # 2 ejecuciones por prueba, 8 s de pausa
+npx tsx scripts/bench-groq.ts --reps=3 --pause=10 --only=openai/gpt-oss-20b
+```
