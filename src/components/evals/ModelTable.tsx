@@ -1,6 +1,6 @@
 import { EVAL_TESTS, TEST_LABEL } from "@/lib/evals/models";
 import type { ModelRowDTO } from "@/lib/evals/types";
-import { avgLatency, describeCell, fmtMs, originBadge, type Tone } from "./format";
+import { avgLatency, describeCell, fmtMs, originBadge, PROVIDER_LABEL, type Tone } from "./format";
 
 const TONE: Record<Tone, string> = { ok: "text-emerald-300", bad: "text-rose-300", muted: "text-slate-400" };
 const TONE_MARK: Record<Tone, string> = { ok: "✓", bad: "✕", muted: "–" };
@@ -34,7 +34,7 @@ export function ModelTable({ models }: { models: ModelRowDTO[] }) {
                 <th scope="row" className="px-4 py-3 font-medium text-slate-100">
                   <span className="break-all">{m.label}</span>
                   <span className="mt-0.5 block text-xs font-normal text-slate-400">
-                    {m.provider === "nvidia" ? "NVIDIA" : "Google"}
+                    {PROVIDER_LABEL[m.provider] ?? m.provider}
                     {m.finalist && (
                       <span className="ml-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-emerald-300 ring-1 ring-inset ring-emerald-400/30">
                         Finalista

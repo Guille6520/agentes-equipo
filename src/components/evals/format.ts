@@ -3,6 +3,8 @@ import type { EvalTest } from "@/lib/evals/models";
 
 export const MANUAL_ORIGIN_PREFIX = "manual";
 
+export const PROVIDER_LABEL: Record<string, string> = { nvidia: "NVIDIA", google: "Google", groq: "Groq" };
+
 export function fmtMs(ms: number | null | undefined, approx = false): string {
   if (ms == null) return "—";
   const v = ms < 1000 ? `${Math.round(ms)} ms` : `${(ms / 1000).toFixed(1).replace(".", ",")} s`;
@@ -19,7 +21,8 @@ export function fmtTime(iso: string): string {
 
 export function originBadge(origin: string, createdAt: string): { label: string; className: string; date: string } {
   if (origin.startsWith(MANUAL_ORIGIN_PREFIX)) {
-    return { label: "Manual 23/11", className: "bg-slate-500/15 text-slate-300 ring-slate-400/30", date: fmtDate(createdAt) };
+    const label = origin.includes("groq") ? "Manual Groq 23/11" : "Manual 23/11";
+    return { label, className: "bg-slate-500/15 text-slate-300 ring-slate-400/30", date: fmtDate(createdAt) };
   }
   return { label: "Relanzado en la app", className: "bg-violet-500/15 text-violet-300 ring-violet-400/30", date: fmtTime(createdAt) };
 }

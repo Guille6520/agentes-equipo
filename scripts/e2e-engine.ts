@@ -1,7 +1,7 @@
 // Prueba extremo a extremo del motor con modelos reales.
 // Uso: npx tsx scripts/e2e-engine.ts ["petición opcional"] [--demo-failure]
 // --demo-failure activa el modo demo (Develop introduce a propósito un defecto en el primer intento).
-// Lee .env.local (DATABASE_URL, NVIDIA_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY) y NO imprime ninguna
+// Lee .env.local (DATABASE_URL, NVIDIA_API_KEY, GOOGLE_GENERATIVE_AI_API_KEY, GROQ_API_KEY) y NO imprime ninguna
 // de esas variables. Crea un run nuevo (no toca el run de demo), llama a advanceRun en bucle y sale
 // con código distinto de 0 si el run no termina en "passed".
 import { config } from "dotenv";
@@ -14,7 +14,7 @@ const MAX_STEPS = 40;
 const MAX_TOTAL_MS = 20 * 60_000;
 
 async function main() {
-  for (const k of ["DATABASE_URL", "NVIDIA_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY"]) {
+  for (const k of ["DATABASE_URL", "NVIDIA_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GROQ_API_KEY"]) {
     if (!process.env[k]) console.warn(`Aviso: falta ${k} en .env.local`);
   }
   if (!process.env.DATABASE_URL) process.exit(1);
@@ -58,7 +58,7 @@ async function main() {
     for (const c of t.acceptance ?? []) console.log(`    criterio [${c.status ?? "sin revisar"}] ${JSON.stringify({ ...c, status: undefined })}`);
   }
   const fallbacks = evs.filter((e) => /respaldo/.test(e.message));
-  const models = [...new Set(evs.flatMap((e) => e.message.match(/gemini-[\w.-]+|laguna-[\w.-]+/g) ?? []))];
+  const models = [...new Set(evs.flatMap((e) => e.message.match(/gemini-[\w.-]+|laguna-[\w.-]+|gpt-oss-[\w.-]+|qwen[\w.-]+/g) ?? []))];
   console.log(`Modelos mencionados: ${models.join(", ") || "ninguno"}`);
   console.log(`Eventos con respaldo/fallback: ${fallbacks.length}`);
   for (const f of fallbacks) console.log(`  · [${f.agent}] ${f.message}`);

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { STEP_PLAN } from "@/lib/evals/models";
 import type { EvalsOverview, StepResponse } from "@/lib/evals/types";
 import { ChecksChart, LatencyChart } from "./Charts";
 import { ModelTable } from "./ModelTable";
@@ -115,7 +116,7 @@ export function EvalsDashboard() {
       const r = await api<{ run?: { id: number }; runId?: number }>("/api/evals", { method: "POST" });
       if (r.status === 201 && r.data.run) {
         await refresh();
-        setMessage({ kind: "info", text: "Ejecutando los 6 pasos (una llamada a un modelo por paso)…" });
+        setMessage({ kind: "info", text: `Ejecutando los ${STEP_PLAN.length} pasos (una llamada a un modelo por paso)…` });
         void drive(r.data.run.id);
       } else if (r.status === 409 && r.data.runId) {
         setMessage({ kind: "info", text: "Ya había una evaluación en curso; se retoma." });
@@ -157,11 +158,13 @@ export function EvalsDashboard() {
             contacto a esta web» en 3-5 tareas en JSON; <span className="text-blue-300">Develop</span> genera un componente de
             contacto que se compila y pasa por los checks deterministas; <span className="text-emerald-300">Testing</span> debe
             detectar los dos fallos plantados en un código. Los resultados «Manual 23/11» son del benchmark del 23/11/2026
-            (script <code className="rounded bg-slate-800 px-1">scripts/model-bench.mjs</code>); los «Relanzado en la app»
-            salen de ejecutar de nuevo los dos finalistas desde esta página.
+            (script <code className="rounded bg-slate-800 px-1">scripts/model-bench.mjs</code>), y los «Manual Groq 23/11»
+            del benchmark de los candidatos de Groq (<code className="rounded bg-slate-800 px-1">scripts/bench-groq.ts</code>,
+            dos ejecuciones por prueba); los «Relanzado en la app» salen de ejecutar de nuevo los tres finalistas desde esta
+            página.
           </p>
           <p className="mt-2 max-w-4xl text-sm text-amber-200/90">
-            Limitaciones: muestras mínimas (una ejecución por prueba y un solo prompt por agente), detección de fallos y
+            Limitaciones: muestras mínimas (una o dos ejecuciones por prueba y un solo prompt por agente), detección de fallos y
             «sensato» con heurísticas, no con revisión humana, y «compila» solo significa que pasa el chequeo de tipos. «No
             medido» indica que el informe manual no obtuvo dato, no que el modelo fallase. Detalle completo en{" "}
             <code className="rounded bg-slate-800 px-1">docs/model-comparison.md</code> y{" "}

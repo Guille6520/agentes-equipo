@@ -2,7 +2,8 @@ import { createEvalRun, getOverview } from "@/lib/evals/service";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
-// Protegida por el login (src/proxy.ts). Crear una evaluación solo prepara los 6 pasos en BD; los
+// Protegida por el login (src/proxy.ts). Crear una evaluación solo prepara sus pasos en BD (3 pruebas por
+// finalista, ver STEP_PLAN en src/lib/evals); los
 // modelos se llaman uno a uno desde /api/evals/[id]/step.
 
 export async function GET() {

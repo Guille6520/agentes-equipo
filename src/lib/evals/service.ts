@@ -8,7 +8,7 @@ import {
   COOLDOWN_SECONDS,
   EVAL_MODELS,
   EVAL_TESTS,
-  MANUAL_ORIGIN,
+  MANUAL_ORIGINS,
   STALE_RUN_MINUTES,
   STEP_PLAN,
   type EvalTest,
@@ -216,7 +216,7 @@ async function finalize(runId: number) {
 export async function getOverview(): Promise<EvalsOverview> {
   await markStaleAbandoned();
 
-  const manual = await db.select().from(evalRuns).where(eq(evalRuns.origin, MANUAL_ORIGIN));
+  const manual = await db.select().from(evalRuns).where(inArray(evalRuns.origin, MANUAL_ORIGINS));
   const recentApp = await db
     .select()
     .from(evalRuns)
@@ -235,7 +235,7 @@ export async function getOverview(): Promise<EvalsOverview> {
   // Por modelo: la evaluación terminada más reciente en la que participó (sin pasos pendientes).
   const models: ModelRowDTO[] = EVAL_MODELS.map((m) => {
     const candidates = runs
-      .filter((r) => r.status === "done" || r.origin === MANUAL_ORIGIN)
+      .filter((r) => r.status === "done" || MANUAL_ORIGINS.includes(r.origin))
       .filter((r) => (byRun.get(r.id) ?? []).some((x) => x.model === m.id))
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id - a.id);
     const run = candidates[0];

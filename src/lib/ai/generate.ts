@@ -1,14 +1,15 @@
-// Llamada a un modelo con timeout, un reintento con backoff y respaldo cruzado de proveedor.
+// Llamada a un modelo con timeout, un reintento con backoff y una cadena de respaldos entre proveedores.
 //
-// Política por llamada lógica (peor caso ~3 x timeout del rol + backoff):
+// Política por llamada lógica (peor caso ~(2 + nº de respaldos) x timeout del rol + backoff):
 //   1. Modelo primario.
 //   2. Si el fallo es transitorio (timeout, red, 429, 5xx o salida inválida): espera y reintenta una vez.
-//   3. Si sigue fallando (o el fallo no es transitorio: 401/404, falta la clave): un intento con el
-//      modelo del otro proveedor. Se avisa con `onFallback` para registrar un evento.
+//   3. Si sigue fallando (o el fallo no es transitorio: 401/404, falta la clave): cada respaldo de la
+//      cadena, en orden, con un único intento. Cada salto se avisa con `onFallback` (de qué modelo a
+//      qué modelo) para registrar un evento. Un respaldo sin clave falla al instante y se pasa al siguiente.
 // Los mensajes de error solo llevan códigos/etiquetas cortas: nunca cuerpos de respuesta ni claves.
 import { APICallError, generateText } from "ai";
 import type { z } from "zod";
-import { getLanguageModel, MissingKeyError, ROLE_MODELS, type ModelSpec, type Role } from "./models";
+import { getLanguageModel, MissingKeyError, ROLE_MODELS, type ModelSpec, type Role, type RoleChain } from "./models";
 
 // Timeout por llamada y rol: corto para que el respaldo entre pronto si un proveedor se queda colgado.
 // Develop escribe más código y necesita algo más de margen (Laguna tarda ~15-20 s).
@@ -28,7 +29,7 @@ export interface CallOptions<T> {
   temperature?: number;
   /** Convierte el texto en el resultado; si lanza, la salida cuenta como inválida (y se reintenta). */
   parse: (text: string) => T;
-  /** Se llama cuando el primario se da por perdido y se pasa al respaldo. */
+  /** Se llama en cada salto de la cadena: cuando un modelo se da por perdido y se pasa al siguiente. */
   onFallback?: (info: { from: ModelSpec; to: ModelSpec; reason: string }) => Promise<void> | void;
 }
 
@@ -94,36 +95,61 @@ async function callOnce<T>(spec: ModelSpec, opts: CallOptions<T>): Promise<T> {
   }
 }
 
-export async function callModel<T>(opts: CallOptions<T>): Promise<CallResult<T>> {
-  const { primary, fallback } = ROLE_MODELS[opts.role];
+export interface ChainStep {
+  spec: ModelSpec;
+  /** Intentos con este modelo: 2 el primario (intento + reintento si el fallo es transitorio), 1 cada respaldo. */
+  maxAttempts: number;
+}
+
+/** Orden de candidatos de una cadena (función pura, sin red). */
+export function chainSteps(chain: RoleChain): ChainStep[] {
+  return [{ spec: chain.primary, maxAttempts: 2 }, ...chain.fallbacks.map((spec) => ({ spec, maxAttempts: 1 }))];
+}
+
+export interface RunChainDeps<T> {
+  attempt: (spec: ModelSpec) => Promise<T>;
+  onFallback?: CallOptions<T>["onFallback"];
+  sleep?: (ms: number) => Promise<void>;
+  now?: () => number;
+}
+
+/**
+ * Recorre la cadena: cada modelo con sus intentos y, si se agota, salta al siguiente avisando con
+ * onFallback. Separada de la red para poder probarla con un `attempt` simulado.
+ */
+export async function runChain<T>(chain: RoleChain, deps: RunChainDeps<T>): Promise<CallResult<T>> {
+  const wait = deps.sleep ?? sleep;
+  const now = deps.now ?? Date.now;
+  const steps = chainSteps(chain);
   const reasons: string[] = [];
-  let lastReason = "";
-  const t0 = Date.now();
 
-  // Primario: intento + un reintento con backoff si el fallo es transitorio.
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const data = await callOnce(primary, opts);
-      return { data, model: primary, usedFallback: false, ms: Date.now() - t0 };
-    } catch (e) {
-      const d = describeError(e);
-      reasons.push(`${primary.label}: ${d.reason}`);
-      lastReason = attempt === 2 ? `${d.reason}, tras reintento` : d.reason;
-      if (!d.retryable || attempt === 2) break;
-      await sleep(d.status === 429 ? BACKOFF_429_MS : BACKOFF_MS);
+  for (let i = 0; i < steps.length; i++) {
+    const { spec, maxAttempts } = steps[i];
+    const t0 = now();
+    let lastReason = "";
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const data = await deps.attempt(spec);
+        return { data, model: spec, usedFallback: i > 0, ms: now() - t0 };
+      } catch (e) {
+        const d = describeError(e);
+        reasons.push(`${spec.label}: ${d.reason}`);
+        lastReason = attempt > 1 ? `${d.reason}, tras reintento` : d.reason;
+        if (!d.retryable || attempt === maxAttempts) break;
+        await wait(d.status === 429 ? BACKOFF_429_MS : BACKOFF_MS);
+      }
     }
+    const next = steps[i + 1];
+    if (next) await deps.onFallback?.({ from: spec, to: next.spec, reason: lastReason });
   }
+  throw new AllModelsFailedError(reasons);
+}
 
-  await opts.onFallback?.({ from: primary, to: fallback, reason: lastReason });
-
-  const t1 = Date.now();
-  try {
-    const data = await callOnce(fallback, opts);
-    return { data, model: fallback, usedFallback: true, ms: Date.now() - t1 };
-  } catch (e) {
-    reasons.push(`${fallback.label}: ${describeError(e).reason}`);
-    throw new AllModelsFailedError(reasons);
-  }
+export async function callModel<T>(opts: CallOptions<T>): Promise<CallResult<T>> {
+  return runChain(ROLE_MODELS[opts.role], {
+    attempt: (spec) => callOnce(spec, opts),
+    onFallback: opts.onFallback,
+  });
 }
 
 /** Extrae y valida JSON de la respuesta (tolera ```json ... ``` y texto alrededor). */

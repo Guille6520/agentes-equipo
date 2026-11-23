@@ -1,4 +1,4 @@
-import { TEST_LABEL } from "@/lib/evals/models";
+import { FINALISTS, STEP_PLAN, TEST_LABEL } from "@/lib/evals/models";
 import type { ActiveRunDTO, EvalResultDTO } from "@/lib/evals/types";
 import { describeCell } from "./format";
 
@@ -29,7 +29,7 @@ export function RunPanel({ active, driving, cooldownLeft, message, onLaunch }: P
   const disabled = running || cooldownLeft > 0;
   const firstPending = active?.steps.find((s) => s.status === "pending")?.id;
   const done = active?.steps.filter((s) => s.status !== "pending").length ?? 0;
-  const total = active?.steps.length ?? 6;
+  const total = active?.steps.length ?? STEP_PLAN.length;
   const mins = Math.floor(cooldownLeft / 60);
   const secs = String(cooldownLeft % 60).padStart(2, "0");
 
@@ -39,9 +39,13 @@ export function RunPanel({ active, driving, cooldownLeft, message, onLaunch }: P
         <div>
           <h2 id="relanzar" className="text-base font-semibold text-slate-100">Relanzar la evaluación</h2>
           <p className="mt-1 max-w-2xl text-sm text-slate-300">
-            Vuelve a medir los dos finalistas (<span className="font-medium">laguna-xs-2.1</span> y{" "}
-            <span className="font-medium">gemini-3.1-flash-lite</span>) con las tres pruebas, llamando a los modelos reales.
-            Son 6 llamadas, una por paso, sin respaldo entre proveedores. Máximo una evaluación nueva cada 10 minutos.
+            Vuelve a medir los {FINALISTS.length} finalistas ({FINALISTS.map((m, i) => (
+              <span key={m.id}>
+                {i > 0 && (i === FINALISTS.length - 1 ? " y " : ", ")}
+                <span className="font-medium">{m.label}</span>
+              </span>
+            ))}) con las tres pruebas, llamando a los modelos reales. Son {STEP_PLAN.length} llamadas, una por paso, sin
+            respaldo entre proveedores. Máximo una evaluación nueva cada 10 minutos.
           </p>
         </div>
         <button
@@ -50,7 +54,7 @@ export function RunPanel({ active, driving, cooldownLeft, message, onLaunch }: P
           disabled={disabled}
           className="shrink-0 rounded-lg bg-gradient-to-r from-violet-500 to-blue-500 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-violet-500/20 transition hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {running ? "Evaluación en curso…" : "Relanzar evaluación (2 modelos)"}
+          {running ? "Evaluación en curso…" : `Relanzar evaluación (${FINALISTS.length} modelos)`}
         </button>
       </div>
 
