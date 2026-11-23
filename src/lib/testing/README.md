@@ -50,6 +50,8 @@ interrumpe código síncrono.
 - El render usa el estado inicial del componente: no simula el envío del formulario.
 - Cargar el compilador y las `lib.d.ts` tarda ~1-2 s por ejecución (las lib se cachean en memoria).
 
+Perfil: `runChecks(files, { profile: "basic" })` omite los checks de formulario y el render solo exige que no lance y produzca HTML. Por defecto `"contact-form"` (comportamiento original).
+
 ## Cómo extenderlo
 
 1. Crea `check-xxx.ts` exportando un `Check = (files) => CheckResult[]` (usa `ast-utils.ts`).

@@ -8,6 +8,16 @@ import type { CheckResult, GeneratedFile, TestReport } from "./types";
 
 export type { GeneratedFile, CheckResult, TestReport } from "./types";
 
+/**
+ * Perfil de checks. "contact-form" (por defecto, el comportamiento original) añade los checks de
+ * formulario de contacto y exige form/email/textarea/botón en el render. "basic" deja sintaxis,
+ * a11y, seguridad y un render que solo exige no lanzar y producir HTML.
+ */
+export type CheckProfile = "contact-form" | "basic";
+export interface RunChecksOptions {
+  profile?: CheckProfile;
+}
+
 const isError = (r: CheckResult) => !r.passed && r.severity === "error";
 
 const skipped = (reason: string): CheckResult => ({
@@ -15,7 +25,8 @@ const skipped = (reason: string): CheckResult => ({
 });
 
 /** Ejecuta todos los checks. Pasa solo si no hay ningún fallo de severidad "error". */
-export async function runChecks(files: GeneratedFile[]): Promise<TestReport> {
+export async function runChecks(files: GeneratedFile[], options: RunChecksOptions = {}): Promise<TestReport> {
+  const profile = options.profile ?? "contact-form";
   const results: CheckResult[] = [];
   const safe = async (name: string, fn: () => CheckResult[] | Promise<CheckResult[]>) => {
     try {
@@ -28,14 +39,14 @@ export async function runChecks(files: GeneratedFile[]): Promise<TestReport> {
 
   const syntax = await safe("Sintaxis y tipos", () => checkSyntax(files));
   const a11y = await safe("Accesibilidad", () => checkA11y(files));
-  const form = await safe("Formulario de contacto", () => checkContactForm(files));
+  const form = profile === "contact-form" ? await safe("Formulario de contacto", () => checkContactForm(files)) : [];
   const security = await safe("Seguridad", () => checkSecurity(files));
   results.push(...syntax, ...a11y, ...form, ...security);
 
   // El render ejecuta código: solo si la seguridad y la sintaxis están limpias.
   if (security.some(isError)) results.push(skipped("fallaron los checks de seguridad; no se ejecuta código no confiable."));
   else if (syntax.some(isError)) results.push(skipped("hay errores de sintaxis/tipos."));
-  else results.push(...(await safe("Render en sandbox", () => checkRender(files))));
+  else results.push(...(await safe("Render en sandbox", () => checkRender(files, { expectContactForm: profile === "contact-form" }))));
 
   const failures = results.filter((r) => !r.passed);
   const passed = !results.some(isError);
