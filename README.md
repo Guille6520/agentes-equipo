@@ -6,7 +6,7 @@ Tres agentes de IA que colaboran sobre una petición escrita en lenguaje natural
 
 - **App desplegada:** https://agentes-equipo.vercel.app (requiere login; usuario y contraseña de prueba se facilitan por separado)
 - **Repositorio:** https://github.com/Guille6520/agentes-equipo
-- **Vídeo de demostración (2 min):** _pendiente de añadir_
+- **Vídeo de demostración (75 s):** _pendiente de añadir_
 
 Hecho con Next.js, Neon (Postgres), Vercel AI SDK y modelos gratuitos. Programado con Claude Code (ver [Cómo usé Claude Code](#cómo-usé-claude-code)).
 
@@ -17,7 +17,7 @@ Hecho con Next.js, Neon (Postgres), Vercel AI SDK y modelos gratuitos. Programad
 3. [Cómo funciona](#cómo-funciona)
 4. [El agente Testing](#el-agente-testing)
 5. [Modelos de IA](#modelos-de-ia)
-6. [Funciones extra: modo demo y evaluación de modelos](#funciones-extra-modo-demo-y-evaluación-de-modelos)
+6. [Funciones extra: vista previa, modo demo y evaluación de modelos](#funciones-extra-vista-previa-modo-demo-y-evaluación-de-modelos)
 7. [Stack y decisiones](#stack-y-decisiones)
 8. [Ejecutar en local](#ejecutar-en-local)
 9. [Despliegue](#despliegue)
@@ -49,18 +49,21 @@ La pantalla muestra, con actualización cada ~1,5 s:
 
 Funciona bien con **componentes de interfaz autocontenidos**: Develop solo puede importar `react` y los archivos que él mismo genera, y estiliza con clases de Tailwind.
 
-| Petición | Resultado medido (23/11/2026, modelo principal) |
+Ejecuciones reales en producción con el modelo principal actual (`gpt-oss-20b`), 23/11/2026:
+
+| Petición | Resultado |
 |---|---|
-| _Añade una página de contacto a esta web_ | 2 tareas, 1 intento cada una, 39 s |
-| _Crea una sección de preguntas frecuentes (FAQ) con acordeón accesible_ | 2 tareas; Testing detectó un fallo de render en el primer intento y Develop lo corrigió en el segundo; 55 s |
-| _Añade un formulario de suscripción a la newsletter con solo el email_ | 1 tarea, 1 intento, 15 s |
-| _Añade una página de contacto a esta web_, con el modo demo y criterios del Orquestador | 1 tarea con 5 criterios; Testing detectó el defecto forzado, Develop lo corrigió en el segundo intento y se cumplieron 5/5 criterios; 47 s |
+| _Añade una página de contacto a esta web_ (sin modo demo) | 1 tarea con 5 criterios. En el primer intento faltaba el encabezado «Contacto» que había pedido el Orquestador; Testing lo devolvió y Develop lo corrigió en el segundo. 11 s |
+| _Añade una página de contacto a esta web_, con modo demo | 1 tarea; Testing detectó el defecto forzado, Develop lo corrigió en el segundo intento y se cumplieron 5/5 criterios. 12 s |
+| _Crea una sección de preguntas frecuentes…_, con modo demo | 1 tarea, corregida en el segundo intento. 6 s |
 
-Otros ejemplos razonables: una tabla de precios con tres planes, un formulario de registro, una tarjeta de producto con imagen, precio y botón, una lista de tareas con estado local, un formulario de login.
+Antes, con los repartos anteriores (primero Gemini y Laguna, después solo Laguna como principal), las mismas peticiones tardaban entre 33 y 96 s en producción. Con Laguna como principal también se probaron, desde el script de extremo a extremo: una FAQ con acordeón accesible (2 tareas, un fallo de render corregido en el segundo intento, 55 s), un formulario de newsletter con solo el email (1 tarea, 15 s) y un logotipo en SVG (1 tarea, 17 s).
 
-Cada resultado anterior es **una sola ejecución**: indica lo que ocurrió, no una media.
+Otros ejemplos razonables: una tabla de precios con tres planes (medida en el benchmark de prompts), un formulario de registro o de login, una tarjeta de producto con precio y botón, o una lista de tareas con estado local.
 
-**Lo que no admite** (por diseño): vídeo, audio o imágenes raster, backend o API propios, acceso a base de datos, nada sobre el servidor (variables de entorno, claves, archivos, procesos), librerías externas, `next/link` o rutas de Next, archivos CSS, y tareas que no sean un componente renderizable (tests, despliegue, configuración). Sí admite dibujos, iconos y logotipos en SVG, porque son código dentro del componente (probado: _«Crea un logotipo en SVG de una taza de café»_ pasó a la primera en 17 s).
+Cada resultado es **una sola ejecución**: indica lo que ocurrió, no una media.
+
+**Lo que no admite** (por diseño): vídeo, audio o imágenes raster, backend o API propios, acceso a base de datos, nada sobre el servidor (variables de entorno, claves, archivos, procesos), librerías externas, `next/link` o rutas de Next, archivos CSS, y tareas que no sean un componente renderizable (tests, despliegue, configuración). Sí admite dibujos, iconos y logotipos en SVG, porque son código dentro del componente (probado: _«Crea un logotipo en SVG de una taza de café»_ pasó a la primera). Las imágenes externas no se cargan en la vista previa, que solo permite imágenes incrustadas.
 
 **Cortafuegos de alcance.** Si la petición está claramente fuera de lo que sabe hacer, el Orquestador no inventa tareas: responde que está fuera de alcance y el run se cierra en ese momento con el motivo y ejemplos de lo que sí se puede pedir, sin reintentos ni llamadas a Develop. Probado con _«Hazme un vídeo de un gato bailando»_: antes daba 3 reintentos y un error confuso en 30 s; ahora, un mensaje claro en unos 3 s. En caso de duda, el Orquestador planifica en lugar de rechazar, para no bloquear peticiones válidas.
 
@@ -79,7 +82,7 @@ flowchart LR
   S --> D["Develop"]
   S --> T["Testing"]
   O & D & T --> DB
-  D & T --> M["gpt-oss-20b (principal) → Laguna → gpt-oss-120b (respaldos)"]
+  O & D & T --> M["gpt-oss-20b (principal) → Laguna → gpt-oss-120b (respaldos)"]
 ```
 
 ### Estado en base de datos, no en memoria
@@ -87,7 +90,7 @@ flowchart LR
 Vercel ejecuta funciones efímeras, así que **todo el estado vive en Postgres** y cada paso es idempotente:
 
 - `runs`: la petición y su estado (`running`, `passed`, `failed`).
-- `tasks`: estado (`pending`, `running`, `failed`, `passed`), intentos, fase (`develop`/`testing`), perfil de checks y último feedback.
+- `tasks`: estado (`pending`, `running`, `failed`, `passed`), intentos, fase (`develop`/`testing`), perfil de checks, criterios de aceptación del Orquestador (con el resultado de la última revisión) y último feedback.
 - `files`: archivos generados, con versión igual al número de intento.
 - `events`: el registro que muestra la pantalla.
 
@@ -133,7 +136,7 @@ Hay tres perfiles según la tarea: **contact-form** (exige nombre, email y mensa
 
 - **19 casos de los checks de Testing** (componentes correctos y con un fallo plantado, incluidos un bucle infinito y criterios incumplidos): `npx tsx src/lib/testing/run-fixtures.ts`.
 - **79 tests** con el runner nativo de Node para las piezas puras del motor: interpretación de las respuestas de los modelos, clasificación de errores, orden y saltos de la cadena de respaldo (con un modelo simulado), perfiles de checks, inyección del defecto del modo demo, límites de uso y la **regresión de seguridad del render** (la prueba de concepto de fuga de secretos, el aislamiento del proceso, los checks contra primitivas de escape y el tachado de secretos; el test de `/proc` solo se ejecuta en Linux): `npm test`.
-- **Integración continua** en GitHub Actions en cada push: tipos, lint, tests y build, sin secretos ni llamadas a modelos.
+- **Integración continua** en GitHub Actions en cada push y pull request a `main`: tipos, lint, tests y build en Linux, sin secretos ni llamadas a modelos.
 
 ## Modelos de IA
 
@@ -144,13 +147,13 @@ La elección salió de un benchmark y se corrigió con datos reales en producci�
 1. Un benchmark de 8 modelos con la misma petición. Solo dos completaron las tres pruebas.
 2. El reparto inicial era mixto (Gemini para Orquestador y Testing). Una vez desplegado, Gemini devolvió 503 de forma repetida y Laguna no falló nunca, así que se invirtieron los papeles y se acortaron los timeouts. Antes del cambio, un run con fallo forzado tardó 158 s, y un paso de ese run esperó 110 s por los 503; después, un run sin fallo forzado tardó 39 s con 0 respaldos. No son ejecuciones equivalentes (una incluía un intento extra de corrección), así que es una señal indicativa y no una comparación exacta.
 3. Con Gemini dando 503, el respaldo no servía de nada en la práctica, así que se añadió Groq como tercer proveedor. Se midieron sus tres modelos de chat gratuitos con las mismas pruebas que `/evals`, dos veces cada una: `gpt-oss-20b` acertó 6 de 6 con 1,2 s de media, `gpt-oss-120b` 5 de 6 (un componente que no compilaba) y `qwen3.8-27b` 5 de 6 (límite 429 del plan gratuito). Se eligió `gpt-oss-20b`. Son muestras pequeñas: sirven para escoger un respaldo, no para clasificar modelos.
-4. Por último se midieron los candidatos con **los prompts reales del motor** (3 repeticiones por prueba y un run completo con cada uno de principal). `gpt-oss-20b` fue el único sin fallos y el más rápido, así que pasó a principal; Laguna quedó de primer respaldo por estar en otro proveedor, y `gpt-oss-120b` al final (en Develop compiló peor). Ese benchmark encontró además dos fallos de los prompts, ya corregidos (criterios SVG y nombres de campos). Detalle en [`docs/seguimiento-del-prompt.md`](docs/seguimiento-del-prompt.md).
+4. Por último se midieron los candidatos con **los prompts reales del motor** (3 repeticiones por prueba y un run completo con cada uno de principal). `gpt-oss-20b` fue el único sin fallos y el más rápido, así que pasó a principal (en producción, las ejecuciones completas pasaron de 33-96 s con los repartos anteriores a 6-16 s); Laguna quedó de primer respaldo por estar en otro proveedor, y `gpt-oss-120b` al final (en Develop compiló peor). Ese benchmark encontró además dos fallos de los prompts, ya corregidos (criterios SVG y nombres de campos). Detalle en [`docs/seguimiento-del-prompt.md`](docs/seguimiento-del-prompt.md).
 
 Detalle completo, metodología, resultados y limitaciones: [`docs/seleccion-de-modelos.md`](docs/seleccion-de-modelos.md) y [`docs/model-comparison.md`](docs/model-comparison.md). El benchmark se reproduce con `node scripts/model-bench.mjs` y el de Groq con `npx tsx scripts/bench-groq.ts`.
 
 ## Funciones extra: vista previa, modo demo y evaluación de modelos
 
-**Vista previa en vivo.** El panel de archivos tiene dos pestañas, _Vista previa_ y _Código_. La vista previa transpila en el servidor los archivos aprobados, resuelve los imports entre ellos y monta el componente dentro de una web de ejemplo, con React cargado desde un CDN y Tailwind. Va en un `<iframe sandbox>` **sin** `allow-same-origin`, con una Content-Security-Policy que prohíbe cualquier conexión de red (`connect-src 'none'`). Así el código generado corre con un origen opaco: no puede leer las cookies de la app, ni su almacenamiento, ni llamar a ningún servidor. A diferencia de `node:vm`, esto sí es una frontera de seguridad real del navegador.
+**Vista previa en vivo.** El panel de archivos tiene dos pestañas, _Vista previa_ y _Código_. La vista previa transpila en el servidor la última versión de los archivos de la tarea (por defecto, la última aprobada; si se muestra una que Testing aún no ha aprobado, lo indica), resuelve los imports entre ellos y monta el componente dentro de una web de ejemplo, con React cargado desde un CDN y Tailwind. Va en un `<iframe sandbox>` **sin** `allow-same-origin`, con una Content-Security-Policy que prohíbe cualquier conexión de red (`connect-src 'none'`). Así el código generado corre con un origen opaco: no puede leer las cookies de la app, ni su almacenamiento, ni llamar a ningún servidor. A diferencia de `node:vm`, esto sí es una frontera de seguridad real del navegador.
 
 **Demo con fallo inicial.** Con buenos modelos casi todo pasa a la primera, así que el bucle de corrección apenas se ve. Una casilla junto a «Nueva petición» hace que Develop entregue, a propósito, una primera versión con un defecto real (un campo sin etiqueta). Testing lo detecta, devuelve el feedback y Develop lo corrige en el segundo intento. El defecto lo inserta el código de forma determinista, se registra como _«Modo demo… No es un error del modelo»_ y el run lleva una etiqueta «Demo».
 
@@ -267,5 +270,9 @@ Programé el proyecto con **Claude Code** (desde su app de escritorio), no como 
   - **Una decisión de modelos que no se sostenía:** tras desplegar, Gemini daba 503 repetidos; lo medí, invertí el reparto y documenté el cambio.
   - **Un Orquestador demasiado rígido:** exigía 2 tareas como mínimo y fallaba con peticiones pequeñas, aunque los dos modelos respondían bien con 1.
   - **Un perfil de checks mal aplicado:** un formulario de newsletter se evaluaba como formulario de contacto y obligaba a añadir campos que nadie había pedido. Se separó en un perfil genérico.
+  - **Un cortafuegos de alcance demasiado estricto:** la primera versión rechazaba también un logotipo en SVG, que sí es un componente válido. Se ajustó el prompt y se probó con los dos casos.
+  - **Un error falso en la vista previa:** las extensiones del navegador (MetaMask) inyectan scripts en el iframe y sus errores aparecían como si el código de los agentes hubiera fallado. El primer arreglo ocultaba también los errores reales; lo detecté probando los dos casos en el navegador antes de subirlo.
+  - **La fuga de secretos del sandbox** (ver [Prompt injection](#prompt-injection)), descubierta con una prueba de concepto y cerrada con varias capas.
+  - **Fallos que solo aparecían en la integración continua:** los tipos que Next genera en `.next/` no existían en un checkout limpio, y un test de seguridad de Linux partía de una suposición falsa sobre `/proc`. Los dos los detectó la CI antes de que llegaran a la entrega.
 - **Seguridad en el proceso.** Las claves nunca pasaron por el chat ni por los commits; las introduje yo en `.env.local` y en Vercel. Cuando una orden tocaba credenciales y el sistema pidió confirmación, se respetó. Los commits incluyen la co-autoría de Claude Code.
 - **Transparencia.** Las limitaciones y las mediciones se documentan tal cual, incluidas las que no salieron bien.
