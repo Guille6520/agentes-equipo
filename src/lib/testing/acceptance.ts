@@ -7,7 +7,7 @@
 //   {type:"heading", text:"Contacto", level:1}          h1-h6 (o solo el nivel indicado) cuyo texto contiene «Contacto»
 //   {type:"link",    text:"Inicio"}                     <a> cuyo texto contiene «Inicio»
 //
-// Selectores admitidos: una etiqueta de ELEMENT_TAGS, o input/button con [type=...] de INPUT_TYPES.
+// Selectores admitidos: una etiqueta de ELEMENT_TAGS (HTML y SVG básico), o input/button con [type=...] de INPUT_TYPES.
 // Los criterios inválidos se descartan uno a uno (nunca tumban el plan).
 import { z } from "zod";
 import type { AcceptanceCriterion } from "@/lib/types";
@@ -20,6 +20,9 @@ export const ELEMENT_TAGS = [
   "nav", "header", "footer", "main", "section", "article", "aside",
   "ul", "ol", "li", "table", "thead", "tbody", "tr", "th", "td",
   "fieldset", "legend", "details", "summary", "figure", "dl", "dt", "dd",
+  // SVG escrito en el componente (iconos, logotipos, gráficos). El benchmark de prompts mostró que el
+  // Orquestador pedía `svg` y se descartaba el criterio.
+  "svg", "path", "circle", "rect", "g", "line", "polyline", "polygon", "ellipse",
 ] as const;
 export const INPUT_TYPES = [
   "text", "email", "tel", "password", "number", "checkbox", "radio", "search", "url", "date", "submit", "button", "reset",

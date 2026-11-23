@@ -1,4 +1,5 @@
 import { EvalNotFoundError, runNextStep } from "@/lib/evals/service";
+import { redact } from "@/lib/security/redact";
 
 // Ejecuta UNA prueba de UN modelo (timeout de 45 s por llamada) y guarda el resultado. Pasa por un
 // lease en BD: si hay otro paso en curso responde `busy` sin hacer nada. maxDuration 60 s cubre el
@@ -19,7 +20,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/evals/[id]/ste
     if (e instanceof EvalNotFoundError) {
       return Response.json({ error: "Evaluación no encontrada." }, { status: 404, headers: NO_STORE });
     }
-    console.error("[evals] step", id, e instanceof Error ? e.message : e);
+    console.error("[evals] step", id, redact(e instanceof Error ? e.message : String(e)));
     return Response.json({ error: "No se pudo ejecutar el paso." }, { status: 500, headers: NO_STORE });
   }
 }

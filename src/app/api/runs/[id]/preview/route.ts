@@ -9,6 +9,7 @@ import {
   type PreparedPreview,
   type PreviewFile,
 } from "@/lib/preview/build";
+import { redact } from "@/lib/security/redact";
 
 // GET /api/runs/[id]/preview?task=<taskId>
 // Devuelve un documento HTML que ejecuta en el NAVEGADOR (iframe sandbox, ver src/lib/preview/build.ts)
@@ -17,6 +18,8 @@ import {
 
 function page(prepared: PreparedPreview, status = 200, caption?: string) {
   const nonce = newNonce();
+  // Los errores (p. ej. de compilación) salen al navegador: sin secretos.
+  if (!prepared.ok) prepared = { ...prepared, title: redact(prepared.title), detail: redact(prepared.detail) };
   return new Response(renderPreviewDocument({ nonce, prepared, caption }), previewHeaders(nonce, status));
 }
 

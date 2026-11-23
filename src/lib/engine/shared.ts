@@ -3,6 +3,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, events, files, tasks } from "@/db";
 import type { Role } from "@/lib/ai/models";
 import type { CheckProfile, GeneratedFile } from "@/lib/testing";
+import { redact } from "@/lib/security/redact";
 import { parseAcceptance } from "@/lib/testing/acceptance";
 import type { AcceptanceCriterion } from "@/lib/types";
 
@@ -12,8 +13,9 @@ export const MAX_STEP_ERRORS = 3;
 
 export type TaskRow = typeof tasks.$inferSelect;
 
+/** Fila de evento. El mensaje se tacha (secretos) ANTES de recortarlo, para no cortar un secreto a medias. */
 export function eventValues(runId: number, agent: Role, message: string, taskId?: number | null) {
-  return { runId, agent, message: message.slice(0, 1000), taskId: taskId ?? null };
+  return { runId, agent, message: redact(message).slice(0, 1000), taskId: taskId ?? null };
 }
 
 export async function logEvent(runId: number, agent: Role, message: string, taskId?: number | null) {
@@ -78,6 +80,16 @@ export async function filesOfVersion(taskId: number, version: number): Promise<G
     .where(and(eq(files.taskId, taskId), eq(files.version, version)))
     .orderBy(asc(files.path));
   return rows;
+}
+
+/**
+ * Bloque de datos delimitado para un prompt: `<tag>` + texto + `</tag>`. Quita del texto cualquier
+ * etiqueta de apertura o cierre con ese mismo nombre, para que una petición no pueda «cerrar» el
+ * bloque y escribir fuera de él como si fueran instrucciones.
+ */
+export function dataBlock(tag: string, text: string): string {
+  const clean = text.replace(new RegExp(`<\\s*/?\\s*${tag}\\s*>`, "gi"), "");
+  return `<${tag}>\n${clean}\n</${tag}>`;
 }
 
 export const secs = (ms: number) => `${(ms / 1000).toFixed(1).replace(".", ",")} s`;

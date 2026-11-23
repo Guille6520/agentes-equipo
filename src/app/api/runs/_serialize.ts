@@ -1,4 +1,5 @@
 import type { events, files, runs, tasks } from "@/db";
+import { redact, redactNullable } from "@/lib/security/redact";
 import type { AcceptanceItemDTO, EventDTO, FileDTO, RunDTO, TaskDTO } from "@/lib/types";
 
 const STATUSES = new Set(["passed", "failed", "skipped"]);
@@ -34,7 +35,8 @@ export function toTaskDTO(t: typeof tasks.$inferSelect): TaskDTO {
     description: t.description,
     status: t.status,
     attempts: t.attempts,
-    lastFeedback: t.lastFeedback,
+    // Última capa: también las filas guardadas antes de tachar en origen salen sin secretos.
+    lastFeedback: redactNullable(t.lastFeedback),
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
     acceptance: toAcceptanceDTO(t.acceptance),
@@ -58,7 +60,7 @@ export function toEventDTO(e: typeof events.$inferSelect): EventDTO {
     runId: e.runId,
     taskId: e.taskId,
     agent: e.agent,
-    message: e.message,
+    message: redact(e.message),
     createdAt: e.createdAt.toISOString(),
   };
 }

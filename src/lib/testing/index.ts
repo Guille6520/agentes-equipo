@@ -5,6 +5,7 @@ import { checkContactForm, checkGenericForm } from "./check-contact-form";
 import { checkSecurity } from "./check-security";
 import { renderAndCheck } from "./check-render";
 import { checkAcceptance } from "./check-acceptance";
+import { redact } from "@/lib/security/redact";
 import type { AcceptanceCriterion } from "@/lib/types";
 import type { AcceptanceReport, CheckResult, GeneratedFile, TestReport } from "./types";
 
@@ -65,8 +66,8 @@ export async function runChecks(files: GeneratedFile[], options: RunChecksOption
     results.push(skipped("hay errores de sintaxis/tipos."));
   } else {
     const expect = profile === "basic" ? "none" : profile;
-    const rendered = await safe("Render en sandbox", () => {
-      const r = renderAndCheck(files, { expect });
+    const rendered = await safe("Render en sandbox", async () => {
+      const r = await renderAndCheck(files, { expect });
       html = r.html;
       entry = r.entry;
       return r.results;
@@ -86,6 +87,9 @@ export async function runChecks(files: GeneratedFile[], options: RunChecksOption
     results.push(...out);
   }
 
+  // Ningún mensaje sale con secretos: el informe acaba en el feedback, los eventos y /evals.
+  for (const r of results) r.message = redact(r.message);
+  if (acceptance) for (const o of acceptance.outcomes) o.message = redact(o.message);
   const failures = results.filter((r) => !r.passed);
   const passed = !results.some(isError);
   let summary = buildSummary(passed, failures, results.length);
@@ -93,6 +97,7 @@ export async function runChecks(files: GeneratedFile[], options: RunChecksOption
     summary += `
 Criterios del Orquestador sin comprobar (${acceptance.skipped}/${acceptance.total}): ${skipReason}.`;
   }
+  summary = redact(summary);
   return { passed, results, failures, summary, ...(acceptance ? { acceptance } : {}) };
 }
 

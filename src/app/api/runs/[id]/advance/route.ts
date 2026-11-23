@@ -1,4 +1,5 @@
 import { advanceRun } from "@/lib/engine";
+import { redact } from "@/lib/security/redact";
 
 // Avanza UN paso del run. Lo llama la UI cuando un run en curso deja de progresar (el bucle de
 // `after()` se cortó, la función expiró o el usuario recargó). Pasa por el mismo lease que el
@@ -18,7 +19,7 @@ export async function POST(_req: Request, ctx: RouteContext<"/api/runs/[id]/adva
     const result = await advanceRun(id);
     return Response.json(result, { headers: NO_STORE });
   } catch (e) {
-    console.error("[engine] advance", id, e instanceof Error ? e.message : e);
+    console.error("[engine] advance", id, redact(e instanceof Error ? e.message : String(e)));
     return Response.json({ error: "No se pudo avanzar la ejecución." }, { status: 500, headers: NO_STORE });
   }
 }

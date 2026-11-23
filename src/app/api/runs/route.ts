@@ -6,6 +6,7 @@ import { advanceLoop } from "@/lib/engine";
 import type { CreateRunResponse, RunListResponse } from "@/lib/types";
 import { checkRunLimits } from "./_limits";
 import { toRunDTO } from "./_serialize";
+import { redact } from "@/lib/security/redact";
 
 // Los GET de Route Handlers son dinámicos por defecto en esta versión de Next
 // (y con cacheComponents no se permite `export const dynamic`), así que no hay caché.
@@ -78,7 +79,7 @@ export async function POST(req: Request) {
       try {
         await advanceLoop(run.id, { budgetMs: LOOP_BUDGET_MS });
       } catch (e) {
-        console.error("[engine] bucle de avance interrumpido", run.id, e instanceof Error ? e.message : e);
+        console.error("[engine] bucle de avance interrumpido", run.id, redact(e instanceof Error ? e.message : String(e)));
       }
     });
 

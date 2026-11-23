@@ -1,4 +1,5 @@
 import { createEvalRun, getOverview } from "@/lib/evals/service";
+import { redact } from "@/lib/security/redact";
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
@@ -10,7 +11,7 @@ export async function GET() {
   try {
     return Response.json(await getOverview(), { headers: NO_STORE });
   } catch (e) {
-    console.error("[evals] overview", e instanceof Error ? e.message : e);
+    console.error("[evals] overview", redact(e instanceof Error ? e.message : String(e)));
     return Response.json({ error: "No se pudo leer la evaluación." }, { status: 500, headers: NO_STORE });
   }
 }
@@ -34,7 +35,7 @@ export async function POST() {
       { status: 429, headers: { ...NO_STORE, "Retry-After": String(out.retryAfterSeconds) } },
     );
   } catch (e) {
-    console.error("[evals] create", e instanceof Error ? e.message : e);
+    console.error("[evals] create", redact(e instanceof Error ? e.message : String(e)));
     return Response.json({ error: "No se pudo crear la evaluación." }, { status: 500, headers: NO_STORE });
   }
 }
