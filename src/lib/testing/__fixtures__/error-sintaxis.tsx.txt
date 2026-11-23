@@ -1,0 +1,31 @@
+import { useState, type FormEvent } from "react";
+
+export default function ContactPage() {
+  const [message, setMessage] = useState("");
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const data = new FormData(e.currentTarget);
+    const res = await fetch("/api/contact", { method: "POST", body: data });
+    setMessage(res.ok ? "Mensaje enviado correctamente." : "No se pudo enviar el mensaje.");
+  }
+
+  return (
+    <main>
+      <h1>Contacto</h1>
+      <form onSubmit={handleSubmit}>
+        <label htmlFor="name">Nombre</label>
+        <input id="name" name="name" type="text" required />
+
+        <label htmlFor="email">Email</label>
+        <input id="email" name="email" type="email" required />
+
+        <label htmlFor="message">Mensaje</label>
+        <textarea id="message" name="message" required />
+
+        <button type="submit">Enviar</button
+        <div role="alert" aria-live="polite">{message}</div>
+      </form>
+    </main>
+  );
+}
