@@ -115,14 +115,20 @@ describe("proceso del render aislado", () => {
   });
 
   it("/proc/self/environ y /proc/<ppid>/environ no se pueden leer (Linux)", { skip: process.platform !== "linux" && "solo Linux tiene /proc" }, async () => {
-    // Comprobación previa: en este proceso (sin sandbox) /proc/self/environ SÍ contiene el secreto.
-    assert.ok(fs.readFileSync("/proc/self/environ", "utf8").includes(SECRET));
+    // Comprobación previa: este proceso (sin sandbox) SÍ puede leer su /proc/self/environ. No se busca
+    // PRUEBA_SECRETO ahí: /proc/self/environ solo refleja el entorno con el que arrancó el proceso, no
+    // las variables asignadas después con process.env (por eso fallaba esta comprobación en Linux).
+    assert.ok(fs.readFileSync("/proc/self/environ", "utf8").length > 0);
     const r = await renderIsolated(file(ESCAPED), file(ESCAPED)[0], { simulateEscape: true });
     assert.equal(r.ok, false);
     if (r.ok) return;
     assert.match(r.error, /\/proc\/self\/environ:ERR_ACCESS_DENIED/);
     assert.match(r.error, /\/proc\/\d+\/environ:ERR_ACCESS_DENIED/);
     assert.equal(r.error.includes(SECRET), false);
+    // Ningún nombre de variable del proceso padre (p. ej. las de CI: DATABASE_URL, SESSION_SECRET) aparece.
+    for (const name of ["DATABASE_URL", "SESSION_SECRET", "NVIDIA_API_KEY", "GROQ_API_KEY"]) {
+      assert.equal(r.error.includes(name), false, `aparece ${name}`);
+    }
   });
 
   it("un bucle infinito se corta por timeout", async () => {
