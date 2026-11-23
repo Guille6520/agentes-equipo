@@ -5,7 +5,8 @@ import { db, events, files, runs, tasks } from "@/db";
 import { callModel, parseJson } from "@/lib/ai/generate";
 import { injectDemoDefect } from "./demo-defect";
 import type { Lease } from "./lease";
-import { dependencyFiles, eventValues, filesOfVersion, logEvent, secs, type TaskRow } from "./shared";
+import { describeCriterion } from "@/lib/testing/acceptance-describe";
+import { dependencyFiles, eventValues, filesOfVersion, logEvent, secs, taskCriteria, type TaskRow } from "./shared";
 
 // Rutas planas bajo components/ e imports relativos: el sandbox de Testing solo resuelve imports
 // relativos entre los archivos generados (no hay alias @/ ni paquetes de Next en el sandbox).
@@ -92,6 +93,18 @@ export async function developTask(run: typeof runs.$inferSelect, task: TaskRow, 
     `Petición original del usuario: ${run.request}`,
     `Tarea: ${task.title}\n${task.description}`,
   ];
+  const criteria = taskCriteria(task);
+  if (criteria.length) {
+    const lines = criteria.map(
+      (c) =>
+        `- ${describeCriterion(c)}${
+          c.type === "field" ? ` (input/textarea/select con name="${c.name}"${c.required ? " y el atributo required" : ""})` : ""
+        }`,
+    );
+    parts.push(
+      `Criterios de aceptación del Orquestador. Testing los comprobará automáticamente en el HTML que renderiza tu componente en su estado inicial (sin clics ni envíos); deben cumplirse todos:\n${lines.join("\n")}`,
+    );
+  }
   if (deps.length) {
     parts.push(
       `Archivos ya aprobados de tareas anteriores (puedes importarlos con rutas relativas; no los reescribas):\n${renderFiles(deps)}`,

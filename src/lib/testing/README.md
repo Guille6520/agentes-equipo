@@ -52,6 +52,25 @@ interrumpe código síncrono.
 
 Perfil: `runChecks(files, { profile: "basic" })` omite los checks de formulario y el render solo exige que no lance y produzca HTML. Por defecto `"contact-form"` (comportamiento original).
 
+## Criterios de aceptación del Orquestador
+
+`runChecks(files, { profile, acceptance })` acepta además criterios que el Orquestador define por
+tarea (columna `tasks.acceptance`, jsonb). `check-acceptance.ts` los comprueba sobre el **mismo HTML**
+del render en sandbox (`renderAndCheck` en `check-render.ts`, no se renderiza dos veces), es decir,
+sobre el estado inicial del componente. Vocabulario cerrado (validado con zod en `acceptance.ts`;
+un criterio inválido se descarta sin tumbar el plan; máximo 5 por tarea):
+
+| Criterio | Pasa si el HTML renderizado... | id del fallo |
+|---|---|---|
+| `{type:"text", value}` | contiene ese texto visible (sin distinguir mayúsculas ni tildes; incluye el `value` de `<input type="submit">`) | `acceptance-text` |
+| `{type:"element", selector, min?}` | tiene al menos `min` (1) elementos; selector = etiqueta permitida (`form`, `button`, `li`, `table`, `nav`, `h1`...) o `input`/`button` con `[type=...]` | `acceptance-element` |
+| `{type:"field", name, required?}` | tiene un `input`/`textarea`/`select` con `name` o `id` igual a `name` (y `required`/`aria-required` si se pide) | `acceptance-field` |
+| `{type:"heading", text, level?}` | tiene un `h1`-`h6` (o solo `h{level}`) cuyo texto contiene `text` | `acceptance-heading` |
+| `{type:"link", text}` | tiene un `<a>` cuyo texto contiene `text` | `acceptance-link` |
+
+Si el render se omite (seguridad o sintaxis) o falla, los criterios quedan **omitidos** (`skipped`),
+nunca aprobados. `report.acceptance` trae el recuento y el estado de cada criterio.
+
 ## Cómo extenderlo
 
 1. Crea `check-xxx.ts` exportando un `Check = (files) => CheckResult[]` (usa `ast-utils.ts`).

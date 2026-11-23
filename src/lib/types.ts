@@ -17,6 +17,23 @@ export interface RunDTO {
   demo?: boolean;
 }
 
+/**
+ * Criterio de aceptación que define el Orquestador y Testing comprueba de forma determinista sobre
+ * el HTML renderizado (estado inicial del componente). Vocabulario cerrado: ver
+ * src/lib/testing/acceptance.ts (validación zod) y src/lib/testing/README.md.
+ */
+export type AcceptanceCriterion =
+  | { type: "text"; value: string }
+  | { type: "element"; selector: string; min?: number }
+  | { type: "field"; name: string; required?: boolean }
+  | { type: "heading"; text: string; level?: number }
+  | { type: "link"; text: string };
+
+/** Resultado del último check: "skipped" = no se pudo comprobar (render omitido o fallido). */
+export type AcceptanceStatus = "passed" | "failed" | "skipped";
+
+export type AcceptanceItemDTO = AcceptanceCriterion & { status?: AcceptanceStatus };
+
 export interface TaskDTO {
   id: number;
   runId: number;
@@ -27,6 +44,8 @@ export interface TaskDTO {
   lastFeedback: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Criterios del Orquestador con el estado de la última revisión de Testing ([] en tareas antiguas). */
+  acceptance?: AcceptanceItemDTO[];
 }
 
 export interface FileDTO {

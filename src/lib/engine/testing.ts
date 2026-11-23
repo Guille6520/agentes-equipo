@@ -3,7 +3,9 @@
 import { eq } from "drizzle-orm";
 import { db, events, runs, tasks } from "@/db";
 import { callModel, describeError } from "@/lib/ai/generate";
-import { runChecks, type CheckProfile } from "@/lib/testing";
+import { runChecks, type AcceptanceReport, type CheckProfile } from "@/lib/testing";
+import { describeCriterion } from "@/lib/testing/acceptance-describe";
+import type { AcceptanceItemDTO } from "@/lib/types";
 import type { Lease } from "./lease";
 import {
   dependencyFiles,
@@ -13,8 +15,19 @@ import {
   MAX_ATTEMPTS,
   profileLabel,
   secs,
+  taskCriteria,
   type TaskRow,
 } from "./shared";
+
+/** «Criterios del Orquestador: 2/3 cumplidos (falla: texto «Enviar»).» */
+function acceptanceLine(a: AcceptanceReport): string {
+  const failed = a.outcomes.filter((o) => o.status === "failed").map((o) => describeCriterion(o.criterion));
+  const extra = [
+    failed.length ? `${failed.length === 1 ? "falla" : "fallan"}: ${failed.join(", ")}` : "",
+    a.skipped ? `${a.skipped} sin comprobar porque no hubo render` : "",
+  ].filter(Boolean);
+  return `Criterios del Orquestador: ${a.passed}/${a.total} cumplidos${extra.length ? ` (${extra.join("; ")})` : ""}.`;
+}
 
 const INSTRUCTIONS = `Eres Testing, revisor de código. Recibes los fallos reales que han detectado unos checks automáticos
 sobre un componente TSX y el código. NO decides si pasa o no: eso ya está decidido. Tu trabajo es redactar
@@ -24,7 +37,8 @@ qué falla, en qué archivo/línea y cómo arreglarlo. No inventes fallos nuevos
 export async function testTask(run: typeof runs.$inferSelect, task: TaskRow, runTasks: TaskRow[], lease: Lease) {
   const own = await filesOfVersion(task.id, task.attempts);
   const deps = await dependencyFiles(runTasks, task);
-  const profile: CheckProfile = task.checkProfile === "contact-form" ? "contact-form" : "basic";
+  const profile: CheckProfile =
+    task.checkProfile === "contact-form" || task.checkProfile === "form" ? task.checkProfile : "basic";
 
   await logEvent(
     run.id,
@@ -36,20 +50,26 @@ export async function testTask(run: typeof runs.$inferSelect, task: TaskRow, run
   // Los archivos de la tarea van primero (el render toma el primer export default); los de tareas
   // aprobadas se añaden para que los imports relativos se resuelvan.
   const t0 = Date.now();
-  const report = await runChecks([...own, ...deps], { profile });
+  const criteria = taskCriteria(task);
+  const report = await runChecks([...own, ...deps], { profile, acceptance: criteria });
   const checksMs = Date.now() - t0;
   const errors = report.failures.filter((f) => f.severity === "error");
+  // Estado de cada criterio en la última revisión (para el tablero). Sin criterios no se toca la columna.
+  const acceptanceState: { acceptance?: AcceptanceItemDTO[] } = report.acceptance
+    ? { acceptance: report.acceptance.outcomes.map((o) => ({ ...o.criterion, status: o.status })) }
+    : {};
+  const acceptanceMsg = report.acceptance ? ` ${acceptanceLine(report.acceptance)}` : "";
 
   if (report.passed) {
     await lease.assertHeld();
     await db.batch([
       db
         .update(tasks)
-        .set({ status: "passed", phase: "done", lastFeedback: report.summary, updatedAt: new Date() })
+        .set({ status: "passed", phase: "done", lastFeedback: report.summary, updatedAt: new Date(), ...acceptanceState })
         .where(eq(tasks.id, task.id)),
       db.update(runs).set({ stepErrors: 0 }).where(eq(runs.id, run.id)),
       db.insert(events).values(
-        eventValues(run.id, "testing", `Aprobada «${task.title}»: ${report.summary} (${secs(checksMs)})`, task.id),
+        eventValues(run.id, "testing", `Aprobada «${task.title}»: ${report.summary}${acceptanceMsg} (${secs(checksMs)})`, task.id),
       ),
     ]);
     return;
@@ -60,7 +80,7 @@ export async function testTask(run: typeof runs.$inferSelect, task: TaskRow, run
   await logEvent(
     run.id,
     "testing",
-    `${errors.length} ${errors.length === 1 ? "check falla" : "checks fallan"}: ${ids.join(", ")}.${
+    `${errors.length} ${errors.length === 1 ? "check falla" : "checks fallan"}: ${ids.join(", ")}.${acceptanceMsg}${
       exhausted ? "" : " Redactando feedback para Develop…"
     }`,
     task.id,
@@ -106,9 +126,9 @@ export async function testTask(run: typeof runs.$inferSelect, task: TaskRow, run
       .update(tasks)
       .set(
         exhausted
-          ? { status: "failed", phase: "done", lastFeedback: feedback, updatedAt: new Date() }
+          ? { status: "failed", phase: "done", lastFeedback: feedback, updatedAt: new Date(), ...acceptanceState }
           : // Vuelve a la cola de Develop; el siguiente intento será attempts + 1.
-            { status: "pending", phase: "develop", lastFeedback: feedback, updatedAt: new Date() },
+            { status: "pending", phase: "develop", lastFeedback: feedback, updatedAt: new Date(), ...acceptanceState },
       )
       .where(eq(tasks.id, task.id)),
     db.update(runs).set({ stepErrors: 0 }).where(eq(runs.id, run.id)),

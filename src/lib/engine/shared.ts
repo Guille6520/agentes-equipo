@@ -3,6 +3,8 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { db, events, files, tasks } from "@/db";
 import type { Role } from "@/lib/ai/models";
 import type { CheckProfile, GeneratedFile } from "@/lib/testing";
+import { parseAcceptance } from "@/lib/testing/acceptance";
+import type { AcceptanceCriterion } from "@/lib/types";
 
 export const MAX_ATTEMPTS = 3;
 /** A partir de cuántos pasos seguidos sin modelo disponible se da el run por fallido. */
@@ -24,10 +26,20 @@ export async function logEvent(runId: number, agent: Role, message: string, task
  * "enlace en la navegación" no se suspende por no tener <form>.
  */
 export function profileFor(title: string, description: string): CheckProfile {
-  return /formulario|\bforms?\b/i.test(`${title} ${description}`) ? "contact-form" : "basic";
+  const text = `${title} ${description}`;
+  if (!/formulario|\bforms?\b/i.test(text)) return "basic";
+  // Solo los formularios de contacto exigen nombre/email/mensaje; el resto (newsletter, registro...) usa el genérico.
+  return /contacto|\bcontact\b/i.test(text) ? "contact-form" : "form";
 }
 
-export const profileLabel = (p: string) => (p === "contact-form" ? "formulario de contacto" : "básico");
+export const profileLabel = (p: string) =>
+  p === "contact-form" ? "formulario de contacto" : p === "form" ? "formulario" : "básico";
+
+/** Criterios del Orquestador de una tarea (sin el estado de la última revisión). [] en tareas antiguas. */
+export function taskCriteria(task: TaskRow): AcceptanceCriterion[] {
+  // parseAcceptance elimina la clave `status` (zod descarta claves desconocidas) y lo que no sea válido.
+  return parseAcceptance(task.acceptance ?? []).criteria;
+}
 
 /** Archivos de la última versión entregada de cada tarea (versión = número de intento). */
 export async function latestFiles(taskRows: TaskRow[]): Promise<Map<number, GeneratedFile[]>> {

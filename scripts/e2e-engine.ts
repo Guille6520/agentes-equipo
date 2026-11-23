@@ -55,6 +55,7 @@ async function main() {
     const fs = await db.select({ path: files.path, version: files.version }).from(files).where(eq(files.taskId, t.id));
     const latest = fs.filter((f) => f.version === t.attempts).map((f) => f.path);
     console.log(`- [${t.status}] ${t.title} | intentos: ${t.attempts} | checks: ${t.checkProfile} | archivos: ${latest.join(", ")}`);
+    for (const c of t.acceptance ?? []) console.log(`    criterio [${c.status ?? "sin revisar"}] ${JSON.stringify({ ...c, status: undefined })}`);
   }
   const fallbacks = evs.filter((e) => /respaldo/.test(e.message));
   const models = [...new Set(evs.flatMap((e) => e.message.match(/gemini-[\w.-]+|laguna-[\w.-]+/g) ?? []))];

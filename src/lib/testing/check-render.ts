@@ -90,13 +90,18 @@ function renderInSandbox(files: GeneratedFile[], entry: GeneratedFile): string {
   return vm.runInContext("__main()", context, { timeout: TIMEOUT_MS }) as string;
 }
 
-/** `expectContactForm` (por defecto true) exige form/email/textarea/botón en el HTML. */
-export const checkRender = (
+export type RenderExpect = "contact-form" | "form" | "none";
+
+/**
+ * Render + comprobaciones de estructura. Devuelve también el HTML (null si no se pudo renderizar)
+ * para que otros checks (criterios del Orquestador) lo reutilicen sin renderizar dos veces.
+ */
+export function renderAndCheck(
   files: GeneratedFile[],
-  { expectContactForm = true }: { expectContactForm?: boolean } = {},
-): CheckResult[] => {
+  { expect = "contact-form" }: { expect?: RenderExpect } = {},
+): { results: CheckResult[]; html: string | null; entry?: string } {
   const jsx = files.filter((f) => isJsxFile(f.path));
-  if (jsx.length === 0) return [result(false, "No hay ningún archivo .tsx/.jsx que renderizar.")];
+  if (jsx.length === 0) return { results: [result(false, "No hay ningún archivo .tsx/.jsx que renderizar.")], html: null };
   const entry = jsx.find((f) => /export\s+default/.test(f.content)) ?? jsx[0];
 
   let html: string;
@@ -105,12 +110,30 @@ export const checkRender = (
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     const timeout = /timed out/i.test(msg) ? ` (excedió ${TIMEOUT_MS} ms: posible bucle infinito)` : "";
-    return [result(false, `El componente lanza una excepción al renderizar: ${msg}${timeout}`, { file: entry.path })];
+    return {
+      results: [result(false, `El componente lanza una excepción al renderizar: ${msg}${timeout}`, { file: entry.path })],
+      html: null,
+      entry: entry.path,
+    };
   }
+  return { results: structureChecks(html, expect, entry.path), html, entry: entry.path };
+}
 
-  if (!expectContactForm) {
+/** `expect`: "contact-form" (por defecto) exige form/email/textarea/botón; "form" exige form y botón; "none" solo que renderice. */
+export const checkRender = (files: GeneratedFile[], options: { expect?: RenderExpect } = {}): CheckResult[] =>
+  renderAndCheck(files, options).results;
+
+function structureChecks(html: string, expect: RenderExpect, file: string): CheckResult[] {
+  const entry = { path: file };
+  if (expect === "none") {
     if (!html.trim()) return [result(false, "El componente renderiza vacío (no produce HTML).", { file: entry.path })];
     return [result(true, "Renderiza sin excepciones y produce HTML.", { file: entry.path })];
+  }
+
+  if (expect === "form") {
+    const missingForm = [["<form", /<form[\s>]/], ["botón", /<button[\s>]/]].filter(([, re]) => !(re as RegExp).test(html)).map(([n]) => n);
+    if (missingForm.length) return [result(false, `El HTML renderizado no contiene: ${missingForm.join(", ")}.`, { file: entry.path })];
+    return [result(true, "Renderiza sin excepciones y contiene form y botón.", { file: entry.path })];
   }
 
   const expected: [string, RegExp][] = [
@@ -122,4 +145,4 @@ export const checkRender = (
   const missing = expected.filter(([, re]) => !re.test(html)).map(([n]) => n);
   if (missing.length) return [result(false, `El HTML renderizado no contiene: ${missing.join(", ")}.`, { file: entry.path })];
   return [result(true, "Renderiza sin excepciones y contiene form, email, textarea y botón.", { file: entry.path })];
-};
+}

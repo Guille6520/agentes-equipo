@@ -1,5 +1,41 @@
-import type { TaskDTO } from "@/lib/types";
+import type { AcceptanceItemDTO, TaskDTO } from "@/lib/types";
+import { describeCriterion } from "@/lib/testing/acceptance-describe";
 import { AGENTS, TASK_COLUMNS } from "./meta";
+
+const CRITERION_STYLE: Record<string, { mark: string; label: string; cls: string }> = {
+  passed: { mark: "✓", label: "cumplido", cls: "bg-emerald-500/10 text-emerald-200 ring-emerald-400/30" },
+  failed: { mark: "✗", label: "incumplido", cls: "bg-rose-500/10 text-rose-200 ring-rose-400/30" },
+  pending: { mark: "·", label: "pendiente de revisar", cls: "bg-slate-950/60 text-slate-400 ring-white/10" },
+};
+
+/** Criterios del Orquestador en la tarjeta: chips compactos con su estado tras la última revisión. */
+function AcceptanceChips({ items }: { items: AcceptanceItemDTO[] }) {
+  const done = items.filter((c) => c.status === "passed").length;
+  return (
+    <span className="mt-2 block">
+      <span className={`block text-[11px] font-medium ${AGENTS.orchestrator.text}`}>
+        Criterios del Orquestador · {done}/{items.length}
+      </span>
+      <span className="mt-1 flex flex-wrap gap-1">
+        {items.map((c, i) => {
+          const st = CRITERION_STYLE[c.status === "passed" || c.status === "failed" ? c.status : "pending"];
+          const text = describeCriterion(c);
+          return (
+            <span
+              key={i}
+              title={`${text}: ${st.label}`}
+              className={`max-w-full truncate rounded-md px-1.5 py-0.5 text-[11px] ring-1 ring-inset ${st.cls}`}
+            >
+              <span aria-hidden="true">{st.mark} </span>
+              {text}
+              <span className="sr-only"> ({st.label})</span>
+            </span>
+          );
+        })}
+      </span>
+    </span>
+  );
+}
 
 interface Props {
   tasks: TaskDTO[];
@@ -55,6 +91,7 @@ export function KanbanBoard({ tasks, selectedTaskId, onSelect }: Props) {
                               {t.attempts} {t.attempts === 1 ? "intento" : "intentos"}
                             </span>
                           </span>
+                          {t.acceptance && t.acceptance.length > 0 && <AcceptanceChips items={t.acceptance} />}
                           {t.lastFeedback && (
                             <span
                               className={`mt-2 block rounded-lg border-l-2 bg-slate-950/50 px-2 py-1.5 text-xs ${
