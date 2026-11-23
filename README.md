@@ -60,7 +60,7 @@ Otros ejemplos razonables: una tabla de precios con tres planes, un formulario d
 
 Cada resultado anterior es **una sola ejecución**: indica lo que ocurrió, no una media.
 
-**Lo que no admite** (por diseño): vídeo, audio o imágenes raster, backend o API propios, acceso a base de datos, librerías externas, `next/link` o rutas de Next, archivos CSS, y tareas que no sean un componente renderizable (tests, despliegue, configuración). Sí admite dibujos, iconos y logotipos en SVG, porque son código dentro del componente (probado: _«Crea un logotipo en SVG de una taza de café»_ pasó a la primera en 17 s).
+**Lo que no admite** (por diseño): vídeo, audio o imágenes raster, backend o API propios, acceso a base de datos, nada sobre el servidor (variables de entorno, claves, archivos, procesos), librerías externas, `next/link` o rutas de Next, archivos CSS, y tareas que no sean un componente renderizable (tests, despliegue, configuración). Sí admite dibujos, iconos y logotipos en SVG, porque son código dentro del componente (probado: _«Crea un logotipo en SVG de una taza de café»_ pasó a la primera en 17 s).
 
 **Cortafuegos de alcance.** Si la petición está claramente fuera de lo que sabe hacer, el Orquestador no inventa tareas: responde que está fuera de alcance y el run se cierra en ese momento con el motivo y ejemplos de lo que sí se puede pedir, sin reintentos ni llamadas a Develop. Probado con _«Hazme un vídeo de un gato bailando»_: antes daba 3 reintentos y un error confuso en 30 s; ahora, un mensaje claro en unos 3 s. En caso de duda, el Orquestador planifica en lugar de rechazar, para no bloquear peticiones válidas.
 
@@ -79,7 +79,7 @@ flowchart LR
   S --> D["Develop"]
   S --> T["Testing"]
   O & D & T --> DB
-  D & T --> M["Laguna (principal) → Gemini → Groq (respaldos)"]
+  D & T --> M["gpt-oss-20b (principal) → Laguna → gpt-oss-120b (respaldos)"]
 ```
 
 ### Estado en base de datos, no en memoria
@@ -108,7 +108,7 @@ Ambos pasan por la misma función y el mismo lease.
 
 ### Fallos de modelo
 
-Cada llamada tiene timeout (30 s Orquestador y Testing, 45 s Develop), un reintento con espera y, si sigue fallando, una **cadena de respaldos en otros proveedores**: Gemini y después Groq, con un intento cada uno. Cada salto queda registrado como evento visible («X falla; uso Y como respaldo»), y un proveedor sin clave configurada se salta sin parar la cadena. Si fallan todos los modelos 3 pasos seguidos, el run se detiene.
+Cada llamada tiene timeout (30 s Orquestador y Testing, 45 s Develop), un reintento con espera y, si sigue fallando, una **cadena de respaldos**: Laguna (NVIDIA, otro proveedor) y después `gpt-oss-120b` (Groq), con un intento cada uno. Cada salto queda registrado como evento visible («X falla; uso Y como respaldo»), y un proveedor sin clave configurada se salta sin parar la cadena. Si fallan todos los modelos 3 pasos seguidos, el run se detiene.
 
 ## El agente Testing
 
@@ -119,31 +119,32 @@ Cada llamada tiene timeout (30 s Orquestador y Testing, 45 s Develop), un reinte
 | Sintaxis y tipos | Compila en memoria con la API de `typescript` (`strict`, `jsx: react-jsx`); informa de archivo y línea |
 | Accesibilidad | Recorre el AST: label asociado a cada campo, botones con texto, `alt` en imágenes, `aria-*` válidos, sin `tabIndex` positivo |
 | Formulario | `onSubmit`, validación de cada campo, `type="email"` en emails y región `role="alert"`/`status` |
-| Seguridad | Sin `dangerouslySetInnerHTML`, `eval`, `new Function`, claves con patrón conocido ni `fetch` a dominios externos |
-| Render en sandbox | Renderiza el componente con `react-dom/server` dentro de `node:vm` (timeout 2 s) y comprueba que no lanza y produce HTML |
+| Seguridad | Sin `dangerouslySetInnerHTML`, `eval`, `new Function`, claves con patrón conocido ni `fetch` a dominios externos. Recorre el AST y bloquea las primitivas para escapar del sandbox: `.constructor`, `__proto__`, `process`, `globalThis`, `Function`, `Reflect`, `require`, `import()` dinámico, `with`… |
+| Render aislado | Renderiza el componente con `react-dom/server` en un **proceso hijo sin variables de entorno y con el modelo de permisos de Node** (timeout 2 s) y comprueba que no lanza y produce HTML |
 | Criterios del Orquestador | Verifica sobre ese HTML los criterios de la tarea: texto visible, elementos (con mínimo), campos (y si son obligatorios), encabezados y enlaces |
 
 Los criterios usan un **vocabulario cerrado** (`text`, `element`, `field`, `heading`, `link`) validado con zod: el Orquestador no puede pedir algo que Testing no sepa comprobar, y los criterios inválidos se descartan sin tumbar el plan. Si el render no se ejecuta (por un error de sintaxis o de seguridad), los criterios quedan **omitidos**, nunca aprobados.
 
 Hay tres perfiles según la tarea: **contact-form** (exige nombre, email y mensaje, solo para formularios de contacto), **form** (cualquier otro formulario: newsletter, registro, login…) y **basic** (sin formulario). Los checks estáticos de seguridad y sintaxis se ejecutan **antes**, y el render, que es el único paso que ejecuta código, solo corre si esos dos están limpios.
 
-> **Advertencia:** `node:vm` no es una frontera de seguridad real. Aquí es defensa en profundidad; la protección principal son los checks estáticos previos. En producción real se usaría un sandbox más fuerte (contenedor o microVM). Detalles y límites en [`src/lib/testing/README.md`](src/lib/testing/README.md).
+> **Sandbox del render.** El código se transpila en el servidor y se ejecuta en un proceso de Node aparte: `env: {}` (no hereda ninguna clave), modelo de permisos (solo puede leer React; no puede leer el resto del disco ni `/proc`, ni lanzar procesos o workers), sin `eval`/`Function` desde cadenas, con límite de memoria y con el proceso matado si no responde. Dentro, `node:vm` sigue cargando los módulos, pero ya no es la frontera: lo es el proceso. No es un contenedor ni una microVM (ver [Limitaciones](#limitaciones-conocidas)). Detalles en [`src/lib/testing/README.md`](src/lib/testing/README.md).
 
 ### Pruebas automáticas
 
 - **19 casos de los checks de Testing** (componentes correctos y con un fallo plantado, incluidos un bucle infinito y criterios incumplidos): `npx tsx src/lib/testing/run-fixtures.ts`.
-- **44 tests** con el runner nativo de Node para las piezas puras del motor: interpretación de las respuestas de los modelos, clasificación de errores, orden y saltos de la cadena de respaldo (con un modelo simulado), perfiles de checks, inyección del defecto del modo demo y límites de uso: `npm test`.
+- **79 tests** con el runner nativo de Node para las piezas puras del motor: interpretación de las respuestas de los modelos, clasificación de errores, orden y saltos de la cadena de respaldo (con un modelo simulado), perfiles de checks, inyección del defecto del modo demo, límites de uso y la **regresión de seguridad del render** (la prueba de concepto de fuga de secretos, el aislamiento del proceso, los checks contra primitivas de escape y el tachado de secretos; el test de `/proc` solo se ejecuta en Linux): `npm test`.
 - **Integración continua** en GitHub Actions en cada push: tipos, lint, tests y build, sin secretos ni llamadas a modelos.
 
 ## Modelos de IA
 
-Los agentes usan **planes gratuitos**, como pedía el enunciado: `poolside/laguna-xs-2.1` (NVIDIA) como modelo principal de los tres agentes y, como respaldos en este orden, `gemini-3.1-flash-lite` (Google) y `openai/gpt-oss-20b` (Groq), con el Vercel AI SDK.
+Los agentes usan **planes gratuitos**, como pedía el enunciado: `openai/gpt-oss-20b` (Groq) como modelo principal de los tres agentes y, como respaldos en este orden, `poolside/laguna-xs-2.1` (NVIDIA) y `openai/gpt-oss-120b` (Groq), con el Vercel AI SDK. `gemini-3.1-flash-lite` (Google) está fuera de la cadena mientras devuelva 503 y se sigue midiendo en `/evals`.
 
 La elección salió de un benchmark y se corrigió con datos reales en producción:
 
 1. Un benchmark de 8 modelos con la misma petición. Solo dos completaron las tres pruebas.
 2. El reparto inicial era mixto (Gemini para Orquestador y Testing). Una vez desplegado, Gemini devolvió 503 de forma repetida y Laguna no falló nunca, así que se invirtieron los papeles y se acortaron los timeouts. Antes del cambio, un run con fallo forzado tardó 158 s, y un paso de ese run esperó 110 s por los 503; después, un run sin fallo forzado tardó 39 s con 0 respaldos. No son ejecuciones equivalentes (una incluía un intento extra de corrección), así que es una señal indicativa y no una comparación exacta.
 3. Con Gemini dando 503, el respaldo no servía de nada en la práctica, así que se añadió Groq como tercer proveedor. Se midieron sus tres modelos de chat gratuitos con las mismas pruebas que `/evals`, dos veces cada una: `gpt-oss-20b` acertó 6 de 6 con 1,2 s de media, `gpt-oss-120b` 5 de 6 (un componente que no compilaba) y `qwen3.8-27b` 5 de 6 (límite 429 del plan gratuito). Se eligió `gpt-oss-20b`. Son muestras pequeñas: sirven para escoger un respaldo, no para clasificar modelos.
+4. Por último se midieron los candidatos con **los prompts reales del motor** (3 repeticiones por prueba y un run completo con cada uno de principal). `gpt-oss-20b` fue el único sin fallos y el más rápido, así que pasó a principal; Laguna quedó de primer respaldo por estar en otro proveedor, y `gpt-oss-120b` al final (en Develop compiló peor). Ese benchmark encontró además dos fallos de los prompts, ya corregidos (criterios SVG y nombres de campos). Detalle en [`docs/seguimiento-del-prompt.md`](docs/seguimiento-del-prompt.md).
 
 Detalle completo, metodología, resultados y limitaciones: [`docs/seleccion-de-modelos.md`](docs/seleccion-de-modelos.md) y [`docs/model-comparison.md`](docs/model-comparison.md). El benchmark se reproduce con `node scripts/model-bench.mjs` y el de Groq con `npx tsx scripts/bench-groq.ts`.
 
@@ -153,7 +154,7 @@ Detalle completo, metodología, resultados y limitaciones: [`docs/seleccion-de-m
 
 **Demo con fallo inicial.** Con buenos modelos casi todo pasa a la primera, así que el bucle de corrección apenas se ve. Una casilla junto a «Nueva petición» hace que Develop entregue, a propósito, una primera versión con un defecto real (un campo sin etiqueta). Testing lo detecta, devuelve el feedback y Develop lo corrige en el segundo intento. El defecto lo inserta el código de forma determinista, se registra como _«Modo demo… No es un error del modelo»_ y el run lleva una etiqueta «Demo».
 
-**Evaluación de modelos (`/evals`).** Una página con la tabla del benchmark y un botón para **relanzar la evaluación de los tres modelos de la cadena** (Laguna, Gemini y `gpt-oss-20b`) desde la app: 9 pasos (3 pruebas por modelo), uno por llamada para caber en los límites serverless, sin respaldo entre proveedores para medir cada modelo por separado. Hay un límite de una evaluación cada 10 minutos, comprobado en la base de datos, para proteger la cuota gratuita.
+**Evaluación de modelos (`/evals`).** Una página con la tabla del benchmark y un botón para **relanzar la evaluación de los tres finalistas** (Laguna, Gemini y `gpt-oss-20b`; Gemini hoy está fuera de la cadena) desde la app: 9 pasos (3 pruebas por modelo), uno por llamada para caber en los límites serverless, sin respaldo entre proveedores para medir cada modelo por separado. Hay un límite de una evaluación cada 10 minutos, comprobado en la base de datos, para proteger la cuota gratuita.
 
 ## Stack y decisiones
 
@@ -161,7 +162,7 @@ Detalle completo, metodología, resultados y limitaciones: [`docs/seleccion-de-m
 |---|---|---|
 | Framework | Next.js (App Router), TypeScript, Tailwind | Requisito del enunciado |
 | Base de datos | Neon (Postgres) + Drizzle ORM | Postgres real, plan gratuito que se reactiva solo; Supabase pausa el proyecto tras ~1 semana sin uso |
-| IA | Vercel AI SDK, NVIDIA + Gemini + Groq | Gratis y sin tarjeta; mismo código para los tres proveedores; permite la cadena de respaldo |
+| IA | Vercel AI SDK, Groq + NVIDIA (Gemini solo en `/evals`) | Gratis y sin tarjeta; mismo código para todos los proveedores; permite la cadena de respaldo |
 | Orquestación | Máquina de estados propia en base de datos | Control total, fácil de explicar y la pantalla pinta directamente lo guardado |
 | Pantalla | Polling cada ~1,5 s | Más fiable en Vercel que el streaming, que choca con los timeouts serverless |
 | Acceso | Login con cookie firmada (HMAC, `httpOnly`, 8 h) | Protege la cuota gratuita de IA y permite un usuario de prueba |
@@ -170,7 +171,7 @@ Alternativas descartadas y sus motivos en [`docs/seleccion-de-modelos.md`](docs/
 
 ## Ejecutar en local
 
-Requisitos: Node 22 y una base de datos Neon gratuita, más claves gratuitas de NVIDIA, Google y Groq (la de Groq es opcional: sin ella ese respaldo se salta).
+Requisitos: Node 22 (el render de Testing usa su modelo de permisos) y una base de datos Neon gratuita, más claves gratuitas de Groq, NVIDIA y Google (la de Google solo la usa `/evals`; si falta una clave, ese eslabón de la cadena se salta).
 
 ```bash
 npm install
@@ -184,9 +185,9 @@ npm run dev
 | Variable | Para qué |
 |---|---|
 | `DATABASE_URL` | Cadena de conexión de Neon (con pooling) |
-| `NVIDIA_API_KEY` | API de NVIDIA (modelo principal) |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | API de Gemini (primer respaldo) |
-| `GROQ_API_KEY` | API de Groq (segundo respaldo, `openai/gpt-oss-20b`) |
+| `GROQ_API_KEY` | API de Groq (principal `openai/gpt-oss-20b` y último respaldo `openai/gpt-oss-120b`) |
+| `NVIDIA_API_KEY` | API de NVIDIA (primer respaldo, Laguna) |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | API de Gemini (solo `/evals`) |
 | `DEMO_USER`, `DEMO_PASSWORD` | Usuario de prueba del login |
 | `SESSION_SECRET` | Firma de la cookie de sesión |
 
@@ -201,7 +202,7 @@ Scripts útiles: `npx tsx scripts/e2e-engine.ts "<petición>"` ejecuta el motor 
 Desplegado en **Vercel (plan Hobby)** con las variables de entorno configuradas en el proyecto. Dos detalles que importan:
 
 - **Región `iad1` (Washington D.C.)**, la más cercana a la base de datos de Neon (AWS US East 2, Ohio): el motor hace muchas consultas por paso.
-- **`next.config.ts` incluye en el bundle** las definiciones de TypeScript y de React que Testing necesita en tiempo de ejecución para compilar y renderizar. El trazado automático de Next no las detecta y, sin ello, Testing suspendería todas las tareas en producción.
+- **`next.config.ts` incluye en el bundle** las definiciones de TypeScript y de React que Testing necesita en tiempo de ejecución para compilar y renderizar, y el script del proceso hijo del render (`src/lib/testing/sandbox/render-child.cjs`). El trazado automático de Next no los detecta y, sin ellos, Testing suspendería todas las tareas en producción.
 
 ## Seguridad
 
@@ -210,17 +211,34 @@ Desplegado en **Vercel (plan Hobby)** con las variables de entorno configuradas 
 - Todas las rutas de la API están protegidas por la sesión.
 - **Protección de la demo:** como máximo una ejecución en curso a la vez y 10 por hora, comprobado en la base de datos (respuestas 409 y 429 con mensaje claro), para que nadie agote la cuota gratuita de IA.
 - La vista previa ejecuta el código generado en un iframe aislado (origen opaco y sin red), como se explica arriba.
-- El código generado por los modelos se analiza de forma estática antes de ejecutarse y se renderiza en un entorno aislado con timeout (con la salvedad de `vm` explicada arriba).
+- El código generado por los modelos se analiza de forma estática antes de ejecutarse y se renderiza en un proceso aislado sin variables de entorno ni permisos (ver abajo).
+- Los textos que salen al exterior (eventos, feedback de Testing, errores de las APIs y de la vista previa) pasan por un filtro que tacha como «[oculto]» los valores de las variables de entorno sensibles y las claves con formato conocido (`nvapi-`, `gsk_`, `AIza`, `sk-`, credenciales de `postgres://`).
+
+### Prompt injection
+
+**Cómo se descubrió.** Escribí una prueba de concepto con una variable de entorno falsa: un componente con `(require as any).constructor("return process")()` escapaba del contexto de `node:vm` (que recibía objetos del servidor como `require` y React), leía `process.env` y sacaba el valor en el mensaje de una excepción. Ese mensaje llegaba al feedback de Testing y a los eventos visibles en pantalla, y ningún check estático lo detectaba. Con una petición maliciosa, Develop podría haber escrito ese código y filtrado las claves de los modelos, la URL de la base de datos o el secreto de sesión. La prueba de concepto está ahora en `tests/security.test.ts`.
+
+**Modelo de amenazas.** La petición del usuario (y todo lo que se deriva de ella: tareas, código, feedback) es contenido no confiable que llega a los modelos. Lo que limita el daño:
+
+- **Los agentes no tienen herramientas**: solo devuelven texto (un plan JSON, archivos de código o un feedback). No pueden leer archivos, llamar a APIs ni ejecutar nada por sí mismos.
+- **El veredicto es determinista**: un texto persuasivo no aprueba una tarea; la aprueban los checks.
+- **La vista previa corre en un iframe aislado** del navegador (origen opaco, sin red).
+- **El render de Testing corre en un proceso aislado**: sin variables de entorno, sin poder leer el disco ni `/proc`, sin lanzar procesos y sin `eval`/`Function` desde cadenas. Si el código escapa de `vm`, no encuentra secretos que robar.
+- **Checks estáticos contra primitivas de escape** (AST, no expresiones regulares): con cualquiera de ellas el render no se ejecuta.
+- **Tachado de secretos** en todo lo que sale del servidor.
+- **Prompts endurecidos**: la petición y el contenido van delimitados (`<peticion_usuario>…</peticion_usuario>`, sin que el usuario pueda cerrar la etiqueta), se declaran como datos y no como instrucciones, el Orquestador marca como fuera de alcance lo que toque servidor, variables de entorno, claves, archivos o ejecución fuera del componente, y Develop tiene prohibido `process`, `require`, `.constructor` y similares.
+
+Ninguna capa es perfecta por sí sola (los prompts se pueden saltar y los checks estáticos se pueden esquivar); por eso son varias.
 
 ## Limitaciones conocidas
 
 - **No integra el código en un proyecto real**: genera y valida componentes, pero no abre pull requests ni modifica un repositorio.
 - **Testing comprueba estructura, no diseño**: no juzga si el resultado es bonito, correcto en contraste de color ni accesible con lector de pantalla; la accesibilidad es estática.
-- **El sandbox de Testing no es una frontera de seguridad real** (`node:vm`); el de la vista previa sí (iframe aislado).
+- **El sandbox de Testing es un proceso de Node, no un contenedor ni una microVM.** No tiene secretos ni permisos de disco o procesos, pero el modelo de permisos de Node 22 **no restringe la red**: un código que escapara de `vm` podría abrir conexiones (aunque ya no tendría secretos que enviar). Si la versión de Node no tuviera modelo de permisos, el hijo se ejecuta solo con el entorno vacío y deja un aviso en los registros y en el resultado del check. El de la vista previa sí es una frontera fuerte (iframe aislado del navegador).
 - **La vista previa depende de dos CDN** (esm.sh y jsDelivr) para cargar React y Tailwind en el navegador; si no responden, muestra un error legible en lugar de la página.
 - **Los criterios del Orquestador solo ven el estado inicial** del componente renderizado (no simulan clics ni envíos) y leen el HTML con expresiones regulares, suficiente para la salida de `renderToStaticMarkup`. Un criterio poco razonable puede hacer que una tarea agote sus 3 intentos.
 - **Los límites de uso no son atómicos**: dos peticiones exactamente simultáneas podrían pasar las dos.
-- **Dependencia de planes gratuitos**: pueden cambiar sus modelos, devolver 503 o saturarse; ya ocurrió con `gemini-2.5-flash` (retirado) y con `gemini-3.1-flash-lite` (503). Se mitiga con la cadena de respaldo de tres proveedores y los timeouts.
+- **Dependencia de planes gratuitos**: pueden cambiar sus modelos, devolver 503 o saturarse; ya ocurrió con `gemini-2.5-flash` (retirado) y con `gemini-3.1-flash-lite` (503, hoy fuera de la cadena). El límite de tokens por minuto de Groq es ajustado para varios runs a la vez. Se mitiga con la cadena de respaldo (el primer respaldo está en otro proveedor) y los timeouts.
 - **Muestras pequeñas** en el benchmark y en las ejecuciones de ejemplo (una por prueba), con heurísticas y sin revisión humana de la calidad.
 - **Límite de intentos del login en memoria**: no se comparte entre instancias serverless.
 - **Las pruebas automáticas cubren las piezas puras**, no el motor completo con base de datos: el flujo de extremo a extremo se prueba con un script que llama a los modelos reales, fuera de la integración continua.
@@ -229,7 +247,7 @@ Desplegado en **Vercel (plan Hobby)** con las variables de entorno configuradas 
 ## Hoja de ruta
 
 - **Evaluación de modelos continua y más rigurosa**: varias muestras por prueba y a distintas horas, revisión humana de la calidad, medición de coste y cuotas, y reevaluar modelos grandes (Kimi, GLM, Mistral) cuando haya menos congestión. Hoy esos modelos no se pudieron medir por timeouts.
-- Sandbox de ejecución con aislamiento real (contenedor o microVM) también para Testing.
+- Sandbox de Testing con aislamiento de sistema operativo (contenedor o microVM, sin red), un paso más allá del proceso con permisos actual.
 - Tests de comportamiento en Testing: simular el envío del formulario vacío y válido y comprobar los mensajes.
 - Streaming en vivo del razonamiento de cada agente.
 - Salida hacia un repositorio real (rama y pull request) con integración continua.

@@ -90,7 +90,7 @@ Resumen: `gpt-oss-20b` 6 de 6 correctas, sin errores, latencia media 1,2 s; `gpt
 
 **Elección: `openai/gpt-oss-20b`.** Criterio: fiabilidad primero, después calidad, después latencia. Es el único de los tres sin ningún fallo ni error en las 6 llamadas, sacó 5/5 en Develop las dos veces y además fue el más rápido. `gpt-oss-120b` tuvo un Develop que no compilaba y Qwen chocó con el límite gratuito (429) y entregó una vez un formulario incompleto.
 
-**Cadena resultante** (`ROLE_MODELS` en `src/lib/ai/models.ts`), igual en los tres roles: `laguna-xs-2.1` (primario, intento + 1 reintento si el fallo es transitorio) → `gemini-3.1-flash-lite` (1 intento) → `gpt-oss-20b` en Groq (1 intento). Cada salto se registra como evento («X falla (motivo); uso Y como respaldo»). Si falta la clave de un proveedor, ese eslabón falla al instante y se pasa al siguiente. Se comprobó con un run real del motor dejando vacías las claves de NVIDIA y Google solo en ese proceso: el Orquestador y Develop llegaron a `gpt-oss-20b` y el run terminó aprobado. `gpt-oss-20b` es además el tercer finalista que se relanza desde `/evals` (9 pasos).
+**Cadena resultante en ese momento** (sustituida después, ver la sección siguiente), igual en los tres roles: `laguna-xs-2.1` (primario, intento + 1 reintento si el fallo es transitorio) → `gemini-3.1-flash-lite` (1 intento) → `gpt-oss-20b` en Groq (1 intento). Cada salto se registra como evento («X falla (motivo); uso Y como respaldo»). Si falta la clave de un proveedor, ese eslabón falla al instante y se pasa al siguiente. Se comprobó con un run real del motor dejando vacías las claves de NVIDIA y Google solo en ese proceso: el Orquestador y Develop llegaron a `gpt-oss-20b` y el run terminó aprobado. `gpt-oss-20b` es además el tercer finalista que se relanza desde `/evals` (9 pasos).
 
 **Limitaciones.**
 
@@ -99,13 +99,29 @@ Resumen: `gpt-oss-20b` 6 de 6 correctas, sin errores, latencia media 1,2 s; `gpt
 - Los modelos `gpt-oss` razonan antes de responder; con el tope de 4096 tokens de salida no hubo respuestas cortadas en estas pruebas, pero peticiones más grandes podrían acercarse.
 - Solo se midió con la petición del formulario de contacto. En la prueba de la cadena forzada, Testing aprobó con los checks deterministas y no llegó a llamar al modelo, así que Groq en el rol de Testing solo está medido por el benchmark.
 
+### Orden actual: `gpt-oss-20b` → Laguna → `gpt-oss-120b` (23/11/2026)
+
+Las pruebas anteriores usaban los prompts simplificados de `/evals`. Después se midió cada candidato con **los prompts reales del motor** (los mismos `INSTRUCTIONS` y el mismo formato de mensaje de `planRun`, `developTask` y `testTask`), 3 repeticiones por prueba y un run completo con cada candidato de principal. Metodología, tablas y limitaciones: [`seguimiento-del-prompt.md`](./seguimiento-del-prompt.md).
+
+Con esos datos se cambió la cadena (`ROLE_MODELS` en `src/lib/ai/models.ts`), igual en los tres roles:
+
+1. **`openai/gpt-oss-20b` (Groq), principal** (intento + 1 reintento si el fallo es transitorio): fue el único sin fallos con los prompts reales y el más rápido.
+2. **`poolside/laguna-xs-2.1` (NVIDIA), primer respaldo** (1 intento): es otro proveedor, así que cubre un 429 o una caída de Groq.
+3. **`openai/gpt-oss-120b` (Groq), último respaldo** (1 intento): planifica bien, pero en Develop compiló peor y comparte proveedor con el principal.
+
+**Gemini queda fuera de la cadena** mientras siga devolviendo 503 (también lo hizo en la sonda del benchmark de prompts); se sigue midiendo en `/evals`. Con `gpt-oss-20b` de principal, el tope de salida del feedback de Testing pasó de 1.024 a 2.048 tokens, porque una respuesta se cortó por el razonamiento del modelo.
+
+El benchmark también encontró dos fallos de los propios prompts, ya corregidos: el vocabulario de criterios no admitía `svg` ni sus elementos (ahora admite `svg`, `path`, `circle`, `rect`, `g`, `line`, `polyline`, `polygon` y `ellipse`) y el Orquestador nombraba los campos en español (nombre, mensaje) mientras Develop usaba `name`, `email`, `message` (ahora ambos usan los nombres en inglés).
+
+Riesgo principal de este orden: el límite gratuito de Groq por modelo (tokens por minuto) es ajustado para varios runs a la vez; por eso el primer respaldo está en otro proveedor.
+
 ## 6. Limitaciones
 
 - **Muestras mínimas:** una ejecución por prueba y un solo prompt por agente; no se midió la variabilidad.
 - **Heurísticas:** "sensato" y "detecta los fallos" se evalúan con expresiones regulares y la forma del JSON, sin revisión humana.
 - **"Compila" no es "funciona":** solo significa que pasa el chequeo de tipos. No se ejecutó en un navegador ni con lector de pantalla.
 - **Calidad sin medir** de Kimi, GLM, Mistral y MiniMax por los timeouts. Convendría repetir en otro horario.
-- **Dependencia de planes gratuitos:** pueden cambiar (ya ocurrió con `gemini-2.5-flash`), devolver 503 o congestionarse. Mitigación: cadena de respaldo con tres proveedores (NVIDIA, Google, Groq), límite de iteraciones y modelos configurables en un solo archivo.
+- **Dependencia de planes gratuitos:** pueden cambiar (ya ocurrió con `gemini-2.5-flash`), devolver 503 o congestionarse. Mitigación: cadena de respaldo con dos proveedores en uso (Groq y NVIDIA; Google se mide en `/evals` pero está fuera de la cadena por los 503), límite de iteraciones y modelos configurables en un solo archivo.
 - **Términos:** el acceso gratuito de NVIDIA es para prototipos; producción requeriría licencia.
 - **Costes y cuotas de producción:** no medidos.
 
