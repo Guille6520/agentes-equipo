@@ -2,6 +2,7 @@
 
 import { Fragment, useState } from "react";
 import type { FileDTO, TaskDTO } from "@/lib/types";
+import { PreviewPane } from "./PreviewPane";
 
 const KEYWORDS =
   "import|export|from|const|let|var|function|return|if|else|for|while|new|class|extends|async|await|default|type|interface|true|false|null|undefined|use client";
@@ -41,6 +42,12 @@ function highlight(code: string) {
   return out;
 }
 
+type View = "preview" | "code";
+const VIEWS: [View, string][] = [
+  ["preview", "Vista previa"],
+  ["code", "Código"],
+];
+
 interface Props {
   task: TaskDTO | null;
   files: FileDTO[];
@@ -56,19 +63,61 @@ export function FileViewer({ task, files }: Props) {
   const paths = [...latest.keys()];
   const activePath = chosen && task && chosen.taskId === task.id && latest.has(chosen.path) ? chosen.path : paths[0];
   const file = activePath ? latest.get(activePath) : undefined;
+  const version = Math.max(0, ...[...latest.values()].map((f) => f.version));
+  const hasFiles = Boolean(task) && paths.length > 0;
+
+  // Pestañas Vista previa / Código (flechas izquierda/derecha para cambiar, patrón ARIA de tabs).
+  const [view, setView] = useState<View>("preview");
+  const onTabKey = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const next: View = view === "preview" ? "code" : "preview";
+    setView(next);
+    document.getElementById(`files-tab-${next}`)?.focus();
+  };
 
   return (
     <section aria-labelledby="files-title" className="flex min-h-0 flex-col">
-      <h2 id="files-title" className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-400">
-        Archivos generados{task ? ` · ${task.title}` : ""}
-      </h2>
-      <div className="h-96 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/50">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 id="files-title" className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+          Archivos generados{task ? ` · ${task.title}` : ""}
+        </h2>
+        {hasFiles && (
+          <div role="tablist" aria-label="Modo de visualización" className="flex gap-1 rounded-lg bg-slate-900/70 p-1 ring-1 ring-white/10">
+            {VIEWS.map(([id, label]) => (
+              <button
+                key={id}
+                id={`files-tab-${id}`}
+                role="tab"
+                type="button"
+                aria-selected={view === id}
+                aria-controls={`files-panel-${id}`}
+                tabIndex={view === id ? 0 : -1}
+                onClick={() => setView(id)}
+                onKeyDown={onTabKey}
+                className={`rounded-md px-3 py-1 text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400 ${
+                  view === id ? "bg-violet-500/25 text-violet-100" : "text-slate-400 hover:bg-white/5"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div
+        className={`${hasFiles && view === "preview" ? "h-[36rem]" : "h-96"} overflow-hidden rounded-2xl border border-white/10 bg-slate-900/50`}
+      >
         {!task ? (
           <p className="p-10 text-center text-sm text-slate-500">Selecciona una tarea del tablero para ver sus archivos.</p>
         ) : paths.length === 0 ? (
           <p className="p-10 text-center text-sm text-slate-500">Esta tarea aún no ha generado archivos.</p>
+        ) : view === "preview" ? (
+          <div id="files-panel-preview" role="tabpanel" aria-labelledby="files-tab-preview" className="h-full">
+            <PreviewPane runId={task.runId} taskId={task.id} version={version} taskStatus={task.status} />
+          </div>
         ) : (
-          <div className="flex h-full flex-col">
+          <div id="files-panel-code" role="tabpanel" aria-labelledby="files-tab-code" className="flex h-full flex-col">
             <div role="tablist" aria-label="Archivos de la tarea" className="flex gap-1 overflow-x-auto border-b border-white/10 p-2">
               {paths.map((p) => (
                 <button
