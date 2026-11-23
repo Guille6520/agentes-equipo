@@ -15,6 +15,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/runs": testingRuntimeFiles,
     "/api/runs/[id]/advance": testingRuntimeFiles,
+    "/api/evals": testingRuntimeFiles,
   },
   cacheComponents: true,
   partialPrefetching: true,
