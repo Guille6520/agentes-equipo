@@ -5,7 +5,9 @@ Prueba técnica: tres agentes de IA que colaboran. El Orquestador divide una pet
 ## Stack
 - Next.js (App Router) + TypeScript + Tailwind, desplegado en Vercel.
 - Neon (Postgres) con Drizzle ORM. Esquema en `src/db/schema.ts`.
-- Vercel AI SDK. Modelo principal: NVIDIA (API compatible con OpenAI). Respaldo: Gemini.
+- Vercel AI SDK, con un modelo por agente y respaldo cruzado entre proveedores (ver `docs/model-comparison.md`):
+  Orquestador y Testing con `gemini-3.1-flash-lite`; Develop con `poolside/laguna-xs-2.1` (NVIDIA, API compatible con OpenAI).
+  Si un proveedor falla, el otro cubre.
 - Orquestación: máquina de estados propia; tareas y estados persistidos en BD.
 - UI en vivo: tablero de tareas + estado de cada agente + log de eventos, con polling.
 
