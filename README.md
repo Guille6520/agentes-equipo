@@ -6,7 +6,11 @@ Tres agentes de IA que colaboran sobre una petición escrita en lenguaje natural
 
 - **App desplegada:** https://agentes-equipo.vercel.app (requiere login; usuario y contraseña de prueba se facilitan por separado)
 - **Repositorio:** https://github.com/Guille6520/agentes-equipo
-- **Vídeo de demostración (75 s):** _pendiente de añadir_
+- **Vídeo de demostración (75 s):** pulsa la imagen para verlo.
+
+[![Vídeo de 75 segundos: una petición, el Orquestador reparte el trabajo con criterios, Testing detecta un fallo, Develop lo corrige y la página aparece en la vista previa](docs/video/portada.png)](docs/video/demo.webm)
+
+_Grabación automática de la app con rótulos (sin voz): login, petición con modo demo, bucle de corrección Testing → Develop con los criterios del Orquestador, vista previa interactiva, código generado y evaluación de modelos._
 
 Hecho con Next.js, Neon (Postgres), Vercel AI SDK y modelos gratuitos. Programado con Claude Code (ver [Cómo usé Claude Code](#cómo-usé-claude-code)).
 
