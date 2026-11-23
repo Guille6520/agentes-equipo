@@ -263,8 +263,24 @@ function showError(title, detail) {
   errorBox.hidden = false;
   root.removeAttribute("aria-busy");
 }
-window.addEventListener("error", (e) => showError("Error al ejecutar el código generado", describe(e.error ?? e.message)));
-window.addEventListener("unhandledrejection", (e) => showError("Error al ejecutar el código generado", describe(e.reason)));
+// Solo se muestran los errores que salen del código generado. Sus módulos se cargan como blob: URLs
+// con un "//# sourceURL=<ruta>", así que se reconocen por la ruta del archivo generado (o por blob:).
+// Las extensiones del navegador (p. ej. MetaMask) inyectan scripts también en este iframe y sus
+// errores no deben presentarse como fallos de los agentes: se dejan en la consola.
+const generatedPaths = (data.modules || []).map((m) => m.path);
+function fromGeneratedCode(filename, err) {
+  const stack = err && typeof err === "object" && "stack" in err ? String(err.stack) : "";
+  const where = String(filename || "") + "\\n" + stack;
+  return where.includes("blob:") || generatedPaths.some((p) => where.includes(p));
+}
+window.addEventListener("error", (e) => {
+  if (!fromGeneratedCode(e.filename, e.error)) return console.warn("[vista previa] error ajeno al código generado:", e.message);
+  showError("Error al ejecutar el código generado", describe(e.error ?? e.message));
+});
+window.addEventListener("unhandledrejection", (e) => {
+  if (!fromGeneratedCode("", e.reason)) return console.warn("[vista previa] promesa rechazada ajena al código generado:", describe(e.reason));
+  showError("Error al ejecutar el código generado", describe(e.reason));
+});
 
 async function start() {
   if (data.error) {
