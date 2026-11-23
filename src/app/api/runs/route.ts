@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db, events, runs } from "@/db";
 import { advanceLoop } from "@/lib/engine";
 import type { CreateRunResponse, RunListResponse } from "@/lib/types";
+import { checkRunLimits } from "./_limits";
 import { toRunDTO } from "./_serialize";
 
 // Los GET de Route Handlers son dinámicos por defecto en esta versión de Next
@@ -47,6 +48,12 @@ export async function POST(req: Request) {
   }
 
   try {
+    // Protección de la demo: 1 run a la vez y máximo 10 por hora (comprobado en BD).
+    const limit = await checkRunLimits();
+    if (!limit.ok) {
+      return Response.json({ error: limit.error }, { status: limit.status, headers: NO_STORE });
+    }
+
     const [run] = await db
       .insert(runs)
       .values({
