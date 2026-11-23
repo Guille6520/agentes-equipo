@@ -12,6 +12,8 @@ export function proxy(request: NextRequest) {
   return NextResponse.redirect(new URL("/login", request.url));
 }
 
+// Sin sesión solo se sirven el login, los estáticos de Next, el favicon y el vídeo de demostración
+// (public/demo.webm), que el README enlaza para quien no tiene usuario de prueba.
 export const config = {
-  matcher: ["/((?!login|_next/static|_next/image|favicon\.ico).*)"],
+  matcher: ["/((?!login|_next/static|_next/image|favicon\\.ico|demo\\.webm$).*)"],
 };

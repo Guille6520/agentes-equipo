@@ -8,7 +8,7 @@ Tres agentes de IA que colaboran sobre una petición escrita en lenguaje natural
 - **Repositorio:** https://github.com/Guille6520/agentes-equipo
 - **Vídeo de demostración (75 s):** pulsa la imagen para verlo.
 
-[![Vídeo de 75 segundos: una petición, el Orquestador reparte el trabajo con criterios, Testing detecta un fallo, Develop lo corrige y la página aparece en la vista previa](docs/video/portada.png)](docs/video/demo.webm)
+[![Vídeo de 75 segundos: una petición, el Orquestador reparte el trabajo con criterios, Testing detecta un fallo, Develop lo corrige y la página aparece en la vista previa](docs/video/portada.png)](https://agentes-equipo.vercel.app/demo.webm)
 
 _Grabación automática de la app con rótulos (sin voz): login, petición con modo demo, bucle de corrección Testing → Develop con los criterios del Orquestador, vista previa interactiva, código generado y evaluación de modelos._
 
